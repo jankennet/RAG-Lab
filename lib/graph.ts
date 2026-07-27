@@ -53,12 +53,12 @@ export async function runRagGraph(question: string, topK = 4) {
     .addNode("retrieve", async (state: RagState) => ({
       documents: await retrieveDocuments(state.question, state.topK)
     }))
-    .addNode("answer", async (state: RagState) => ({
+    .addNode("respond", async (state: RagState) => ({
       answer: await answerQuestion(state.question, state.documents)
     }))
     .addEdge(START, "retrieve")
-    .addEdge("retrieve", "answer")
-    .addEdge("answer", END)
+    .addEdge("retrieve", "respond")
+    .addEdge("respond", END)
     .compile();
 
   const result = await graph.invoke({ question, topK });
