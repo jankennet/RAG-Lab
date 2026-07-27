@@ -56,3 +56,8 @@ as $$
   order by rag_documents.embedding <=> query_embedding
   limit match_count;
 $$;
+
+grant usage on schema public to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.rag_documents to service_role;
+grant select on table public.rag_documents to anon, authenticated, service_role;
+grant execute on function public.match_documents(vector(1024), integer, text) to anon, authenticated, service_role;

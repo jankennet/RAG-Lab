@@ -22,7 +22,7 @@ export const ingestionEnvSchema = baseServerEnvSchema.extend({
   HF_INGEST_TITLE_FIELD: z.string().min(1).default("title"),
   HF_INGEST_CONTENT_FIELD: z.string().min(1).default("text"),
   HF_INGEST_ID_FIELD: z.string().min(1).default("id"),
-  HF_INGEST_URL_FIELD: z.string().min(1).default("url"),
+  HF_INGEST_URL_FIELD: z.string().default("url"),
   HF_INGEST_METADATA_FIELDS: z.string().default("")
 });
 

@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { z } from "zod";
 import { loadEnv, benchmarkEnvSchema } from "@/lib/env";
 import { fetchHuggingFaceDatasetRows } from "@/lib/hf-datasets";

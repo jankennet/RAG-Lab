@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { z } from "zod";
 import { createIngestedChunks } from "@/lib/chunking";
 import { loadEnv, ingestionEnvSchema } from "@/lib/env";
@@ -17,7 +18,40 @@ const metadataFields = metadataFieldListSchema.parse(env.HF_INGEST_METADATA_FIEL
 
 function pickString(row: Record<string, unknown>, fieldName: string) {
   const value = row[fieldName];
-  return typeof value === "string" ? value : value == null ? "" : String(value);
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === "string") {
+          return entry;
+        }
+
+        if (entry == null) {
+          return "";
+        }
+
+        if (typeof entry === "object") {
+          return JSON.stringify(entry);
+        }
+
+        return String(entry);
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  if (typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+
+  return String(value);
 }
 
 function buildMetadata(row: Record<string, unknown>) {
