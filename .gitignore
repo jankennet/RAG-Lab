@@ -1,0 +1,13 @@
+.agents
+.agents/skills
+skills-lock.json
+
+node_modules
+.next
+dist
+coverage
+.env
+.env.local
+.env.*.local
+*.log
+
