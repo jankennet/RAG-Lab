@@ -1,10 +1,11 @@
-import type { ApiKeyStore, LlmProvider } from "@/lib/types";
+import type { ApiKeyStore, LlmProvider } from "@/shared/types";
 
 export type DashboardPreferences = {
   provider: LlmProvider;
   model: string;
   apiKeys: ApiKeyStore;
   activeDatasetId: string;
+  topK: number;
 };
 
 export const defaultDashboardPreferences: DashboardPreferences = {
@@ -15,9 +16,10 @@ export const defaultDashboardPreferences: DashboardPreferences = {
     openai: { key: "", validated: false },
     anthropic: { key: "", validated: false },
     supabaseUrl: "",
-    supabaseKey: ""
+    supabaseKey: "",
   },
-  activeDatasetId: "ragbench-covidqa"
+  activeDatasetId: "",
+  topK: 4,
 };
 
 const STORAGE_KEY = "ms-rag-dashboard-preferences";
@@ -35,7 +37,7 @@ export function loadDashboardPreferences(): DashboardPreferences {
 
     return {
       ...defaultDashboardPreferences,
-      ...JSON.parse(raw)
+      ...JSON.parse(raw),
     } as DashboardPreferences;
   } catch {
     return defaultDashboardPreferences;

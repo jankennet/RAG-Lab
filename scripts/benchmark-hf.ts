@@ -1,8 +1,8 @@
 import "dotenv/config";
 import { z } from "zod";
-import { loadEnv, benchmarkEnvSchema } from "@/lib/env";
-import { fetchHuggingFaceDatasetRows } from "@/lib/hf-datasets";
-import { runRagGraph } from "@/lib/graph";
+import { loadEnv, benchmarkEnvSchema } from "@/server/db/env";
+import { fetchHuggingFaceDatasetRows } from "@/server/datasets/hf-datasets";
+import { runRagGraph } from "@/server/rag/graph";
 
 const env = loadEnv(benchmarkEnvSchema);
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { Dataset } from "@/lib/types";
+import type { Dataset } from "@/shared/types";
 
 type BenchmarkRun = {
   id: string;
@@ -19,7 +19,6 @@ export default function BenchmarksPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Trigger form state
   const [datasetId, setDatasetId] = useState("");
   const [limit, setLimit] = useState(10);
   const [triggering, setTriggering] = useState(false);
@@ -80,109 +79,123 @@ export default function BenchmarksPage() {
     }
   };
 
+  const statusColor = (status: string) => {
+    switch (status) {
+      case "completed": return "text-success";
+      case "running": return "text-warning";
+      default: return "text-muted";
+    }
+  };
+
+  const statusBg = (status: string) => {
+    switch (status) {
+      case "completed": return "bg-success/10 border-success/20";
+      case "running": return "bg-warning/10 border-warning/20";
+      default: return "bg-muted/10 border-muted/20";
+    }
+  };
+
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Benchmarks</h1>
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-2xl mx-auto px-6 py-8">
+        <h1 className="text-2xl font-bold mb-8">Benchmarks</h1>
 
-      {/* Trigger Benchmark */}
-      <div className="bg-bg/50 backdrop-blur-sm rounded-xl border border-line p-6 mb-6">
-        <h2 className="font-semibold mb-4">Run Benchmark</h2>
-        <p className="text-muted text-sm mb-4">
-          Run a retrieval quality benchmark against a dataset using BLEU/ROUGE scoring.
-        </p>
-        <form onSubmit={handleTrigger} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Dataset</label>
-            <select
-              value={datasetId}
-              onChange={(e) => setDatasetId(e.target.value)}
-              required
-              className="w-full px-3 py-2 bg-bg/60 border-line rounded-md text-sm focus:outline-none focus:border-accent"
-            >
-              <option value="">Select a dataset...</option>
-              {datasets.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} ({d.rowCount.toLocaleString()} rows, {d.source})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Question Limit</label>
-            <input
-              type="number"
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              min={1}
-              max={100}
-              className="w-full px-3 py-2 bg-bg/60 border-line rounded-md text-sm focus:outline-none focus:border-accent"
-            />
-          </div>
-          {triggerError && <p className="text-red-400 text-sm">{triggerError}</p>}
-          <button
-            type="submit"
-            disabled={triggering || !datasetId}
-            className="w-full px-4 py-2 bg-accent text-[#03111a] font-bold rounded-md hover:bg-accent/80 transition-colors disabled:opacity-50"
-          >
-            {triggering ? "Triggering..." : "Run Benchmark"}
-          </button>
-        </form>
-      </div>
-
-      {/* Run History */}
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
-          <p className="text-red-400 text-sm">{error}</p>
-        </div>
-      )}
-
-      {loading ? (
-        <p className="text-muted text-center py-8">Loading benchmarks...</p>
-      ) : runs.length === 0 ? (
-        <p className="text-muted text-center py-8">No benchmarks yet. Trigger one above!</p>
-      ) : (
-        <div className="space-y-4">
-          <h2 className="font-semibold mb-4">Benchmark History ({runs.length})</h2>
-          <div className="space-y-4">
-            {runs.map((run) => (
-              <div
-                key={run.id}
-                className="bg-bg/50 backdrop-blur-sm rounded-xl border border-line p-4"
+        {/* Trigger */}
+        <div className="bg-bg-alt rounded-2xl border border-line p-6 mb-8">
+          <h2 className="font-semibold mb-2">Run Benchmark</h2>
+          <p className="text-sm text-muted mb-6">
+            Evaluate retrieval quality against a dataset using BLEU/ROUGE scoring.
+          </p>
+          <form onSubmit={handleTrigger} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-muted mb-1.5">Dataset</label>
+              <select
+                value={datasetId}
+                onChange={(e) => setDatasetId(e.target.value)}
+                required
+                className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h3 className="font-semibold">{run.datasetName}</h3>
-                    <p className="text-xs text-muted">
-                      {new Date(run.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <span
-                    className={`px-2 py-0.5 text-xs font-medium rounded ${
-                      run.status === "completed"
-                        ? "bg-green-500/20 text-green-400"
-                        : run.status === "running"
-                          ? "bg-yellow-500/20 text-yellow-400"
-                          : "bg-gray-500/20 text-gray-400"
-                    }`}
-                  >
-                    {run.status}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted">Questions: </span>
-                    <span>{run.totalQuestions}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted">Avg Score: </span>
-                    <span className="font-mono">{(run.averageScore * 100).toFixed(1)}%</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                <option value="">Select a dataset...</option>
+                {datasets.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} ({d.rowCount.toLocaleString()} rows)
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-muted mb-1.5">Question Limit</label>
+              <input
+                type="number"
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                min={1}
+                max={100}
+                className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+              />
+            </div>
+            {triggerError && (
+              <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">
+                {triggerError}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={triggering || !datasetId}
+              className="w-full px-4 py-2.5 bg-accent text-[#03111a] font-semibold rounded-xl hover:bg-accent-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {triggering ? "Running..." : "Run Benchmark"}
+            </button>
+          </form>
         </div>
-      )}
+
+        {/* History */}
+        {error && (
+          <div className="bg-danger/10 border border-danger/20 rounded-xl p-4 mb-6">
+            <p className="text-danger text-sm">{error}</p>
+          </div>
+        )}
+
+        {loading ? (
+          <p className="text-muted text-center py-12">Loading benchmarks...</p>
+        ) : runs.length === 0 ? (
+          <p className="text-muted text-center py-12">No benchmarks yet. Trigger one above!</p>
+        ) : (
+          <div>
+            <h2 className="font-semibold mb-4">History ({runs.length})</h2>
+            <div className="space-y-3">
+              {runs.map((run) => (
+                <div
+                  key={run.id}
+                  className="bg-bg-alt rounded-2xl border border-line p-5"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="font-semibold text-sm">{run.datasetName}</h3>
+                      <p className="text-xs text-muted mt-0.5">
+                        {new Date(run.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${statusBg(run.status)} ${statusColor(run.status)}`}>
+                      {run.status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted block text-xs mb-0.5">Questions</span>
+                      <span className="font-medium">{run.totalQuestions}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-xs mb-0.5">Avg Score</span>
+                      <span className="font-mono font-medium">{(run.averageScore * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

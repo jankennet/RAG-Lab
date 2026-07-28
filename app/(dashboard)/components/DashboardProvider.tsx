@@ -1,19 +1,20 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import type { ApiKeyStore, LlmProvider } from "@/lib/types";
-import { PROVIDERS } from "@/lib/types";
+import type { ApiKeyStore, LlmProvider } from "@/shared/types";
+import { PROVIDERS } from "@/shared/types";
 import {
   loadDashboardPreferences,
   saveDashboardPreferences,
   defaultDashboardPreferences,
   type DashboardPreferences,
-} from "@/lib/dashboard-preferences";
+} from "../lib/preferences";
 
 type DashboardContextValue = {
   preferences: DashboardPreferences;
   setProvider: (provider: LlmProvider) => void;
   setModel: (model: string) => void;
+  setTopK: (topK: number) => void;
   setApiKey: (provider: LlmProvider, key: string) => void;
   validateApiKey: (provider: LlmProvider) => Promise<boolean>;
   setActiveDataset: (datasetId: string) => void;
@@ -62,6 +63,10 @@ export default function DashboardProvider({ children }: { children: ReactNode })
 
   const setModel = useCallback((model: string) => {
     setPreferences((prev) => ({ ...prev, model }));
+  }, []);
+
+  const setTopK = useCallback((topK: number) => {
+    setPreferences((prev) => ({ ...prev, topK }));
   }, []);
 
   const setApiKey = useCallback((provider: LlmProvider, key: string) => {
@@ -117,6 +122,7 @@ export default function DashboardProvider({ children }: { children: ReactNode })
         preferences,
         setProvider,
         setModel,
+        setTopK,
         setApiKey,
         validateApiKey,
         setActiveDataset,

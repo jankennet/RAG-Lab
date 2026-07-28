@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { formatAnswerSourceList, runRagGraph } from "@/lib/graph";
-import type { ApiKeyStore, LlmProvider } from "@/lib/types";
+import { formatAnswerSourceList, runRagGraph } from "@/server/rag/graph";
+import type { ApiKeyStore, LlmProvider } from "@/shared/types";
 
 export const runtime = "nodejs";
 

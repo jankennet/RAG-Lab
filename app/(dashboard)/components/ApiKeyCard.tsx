@@ -1,4 +1,4 @@
-import { ApiKeyEntry } from "@/lib/types";
+import { ApiKeyEntry } from "@/shared/types";
 
 interface ApiKeyCardProps {
   provider: keyof Omit<ApiKeyEntry, "validated" | "model">;

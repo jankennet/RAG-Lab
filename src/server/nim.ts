@@ -1,5 +1,5 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { loadEnv, serverEnvSchema } from "@/lib/env";
+import { loadEnv, serverEnvSchema } from "@/server/db/env";
 
 export function getNimConfig() {
   return loadEnv(serverEnvSchema);

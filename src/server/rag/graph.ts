@@ -1,7 +1,7 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
-import { retrieveDocuments } from "@/lib/retrieval";
-import { callLlm } from "@/lib/providers";
-import type { ApiKeyStore, LlmProvider, RagDocument } from "@/lib/types";
+import { retrieveDocuments } from "@/server/rag/retrieval";
+import { callLlm } from "@/server/rag/providers";
+import type { ApiKeyStore, LlmProvider, RagDocument } from "@/shared/types";
 
 // We'll keep the helper functions in this file to avoid circular dependencies.
 

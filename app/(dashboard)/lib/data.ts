@@ -1,5 +1,5 @@
-import type { Dataset, ProviderConfig } from "@/lib/types";
-import { PROVIDERS } from "@/lib/types";
+import type { Dataset, ProviderConfig } from "@/shared/types";
+import { PROVIDERS } from "@/shared/types";
 
 export const dashboardProviders: ProviderConfig[] = PROVIDERS;
 
@@ -38,7 +38,7 @@ export const dashboardDatasets: Dataset[] = [
 
 export const suggestedPrompts = [
   "Summarize dataset with source citations.",
-  "Find contradictions in these docs.",
+  "Find contradictions in these ask.",
   "Answer like Claude, but cite every source.",
   "What chunks should I fix before ingestion?"
 ];

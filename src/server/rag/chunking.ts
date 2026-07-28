@@ -1,4 +1,4 @@
-import type { IngestedRow } from "@/lib/types";
+import type { IngestedRow } from "@/shared/types";
 
 export function splitText(text: string, maxLength = 1000, overlap = 150) {
   const normalized = text.replace(/\s+/g, " ").trim();

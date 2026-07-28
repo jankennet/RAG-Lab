@@ -1,4 +1,4 @@
-import { RagDocument } from "@/lib/types";
+import { RagDocument } from "@/shared/types";
 
 interface SourceCardProps {
   source: RagDocument;
@@ -7,36 +7,33 @@ interface SourceCardProps {
 
 export default function SourceCard({ source, index }: SourceCardProps) {
   return (
-    <div className="bg-bg/50 backdrop-blur-sm rounded-xl border border-line p-4 mb-3">
-      <div className="flex items-start mb-2">
-        <div className="flex-shrink-0">
-          <div className="h-8 w-8 bg-accent rounded-full flex items-center justify-center">
-            <span className="text-white text-sm font-bold">{index + 1}</span>
-          </div>
+    <div className="bg-bg-alt border border-line rounded-xl p-4 mb-3 last:mb-0">
+      <div className="flex items-start gap-3 mb-3">
+        <div className="flex-shrink-0 h-7 w-7 bg-accent/20 text-accent rounded-lg flex items-center justify-center text-xs font-bold">
+          {index + 1}
         </div>
-        <div className="ml-3 flex-1">
-          <h3 className="font-semibold text-text">{source.title}</h3>
-          <p className="text-muted mb-1">{source.sourceName}</p>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-sm truncate">{source.title || `Chunk ${source.chunkIndex}`}</h3>
+          <p className="text-xs text-muted truncate">{source.sourceName}</p>
           {source.sourceUrl && (
             <a
               href={source.sourceUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-accent hover:underline"
+              className="text-xs text-accent hover:underline mt-0.5 inline-block truncate max-w-full"
             >
               {source.sourceUrl}
             </a>
           )}
         </div>
       </div>
-      <div className="border-t border-line pt-3">
-        <p className="text-muted whitespace-pre-line">{source.content}</p>
-        {source.similarity !== undefined && (
-          <div className="mt-2 text-xs text-muted flex justify-end">
-            Similarity: {(source.similarity * 100).toFixed(1)}%
-          </div>
-        )}
-      </div>
+      <p className="text-sm text-muted whitespace-pre-line line-clamp-6">{source.content}</p>
+      {source.similarity !== undefined && (
+        <div className="mt-3 pt-3 border-t border-line flex justify-between items-center text-xs text-muted">
+          <span>Chunk #{source.chunkIndex}</span>
+          <span>{(source.similarity * 100).toFixed(1)}% match</span>
+        </div>
+      )}
     </div>
   );
 }

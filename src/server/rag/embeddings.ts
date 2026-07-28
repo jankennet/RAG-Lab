@@ -1,5 +1,5 @@
-import { loadEnv, serverEnvSchema } from "@/lib/env";
-import type { ApiKeyStore, LlmProvider } from "@/lib/types";
+import { loadEnv, serverEnvSchema } from "@/server/db/env";
+import type { ApiKeyStore, LlmProvider } from "@/shared/types";
 
 type EmbeddingProvider = Exclude<LlmProvider, "anthropic">;
 

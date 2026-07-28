@@ -1,10 +1,10 @@
 import "dotenv/config";
 import { z } from "zod";
-import { createIngestedChunks } from "@/lib/chunking";
-import { loadEnv, ingestionEnvSchema } from "@/lib/env";
-import { fetchHuggingFaceDatasetRows } from "@/lib/hf-datasets";
-import { createNimEmbeddingsModel } from "@/lib/nim";
-import { createSupabaseAdminClient } from "@/lib/supabase";
+import { createIngestedChunks } from "@/server/rag/chunking";
+import { loadEnv, ingestionEnvSchema } from "@/server/db/env";
+import { fetchHuggingFaceDatasetRows } from "@/server/datasets/hf-datasets";
+import { createNimEmbeddingsModel } from "@/server/nim";
+import { createSupabaseAdminClient } from "@/server/db/supabase";
 
 const metadataFieldListSchema = z
   .string()

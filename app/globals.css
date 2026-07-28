@@ -1,5 +1,86 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* If you need any custom CSS that cannot be handled by utilities, add it here */
+@theme {
+  --color-bg: #08111f;
+  --color-bg-alt: #0b1a2e;
+  --color-panel: rgba(14, 26, 48, 0.82);
+  --color-panel-strong: rgba(9, 15, 28, 0.92);
+  --color-text: #eef4ff;
+  --color-muted: #8a9fc0;
+  --color-line: rgba(176, 199, 255, 0.14);
+  --color-accent: #8ef2d0;
+  --color-accent-hover: #6ee6ba;
+  --color-accent-strong: #6ae6ff;
+  --color-danger: #f87171;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Prose overrides for rendered markdown */
+.prose-chat {
+  line-height: 1.7;
+
+  p {
+    margin-bottom: 0.75rem;
+  }
+
+  p:last-child {
+    margin-bottom: 0;
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: rgba(176, 199, 255, 0.1);
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+  }
+
+  pre {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 1rem;
+    border-radius: 12px;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+    border: 1px solid var(--color-line);
+
+    code {
+      background: none;
+      padding: 0;
+      font-size: 0.8em;
+    }
+  }
+
+  ul, ol {
+    padding-left: 1.25rem;
+    margin-bottom: 0.75rem;
+  }
+
+  a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  blockquote {
+    border-left: 2px solid var(--color-accent);
+    padding-left: 1rem;
+    color: var(--color-muted);
+    margin: 0.75rem 0;
+  }
+}

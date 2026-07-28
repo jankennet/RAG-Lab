@@ -1,7 +1,7 @@
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatOpenAI } from "@langchain/openai";
 import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
-import { ApiKeyStore, LlmProvider } from "./types";
+import { ApiKeyStore, LlmProvider } from "@/shared/types";
 
 interface CallLlmParams {
   provider: LlmProvider;

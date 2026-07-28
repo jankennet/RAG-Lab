@@ -1,6 +1,6 @@
-import { createEmbeddingsModel } from "@/lib/embeddings";
-import { createSupabaseAdminClient } from "@/lib/supabase";
-import type { ApiKeyStore, LlmProvider, RagDocument } from "@/lib/types";
+import { createEmbeddingsModel } from "@/server/rag/embeddings";
+import { createSupabaseAdminClient } from "@/server/db/supabase";
+import type { ApiKeyStore, LlmProvider, RagDocument } from "@/shared/types";
 
 type MatchDocumentRow = {
   id: number;
