@@ -70,8 +70,6 @@ export type ApiKeyStore = {
   nvidia?: ApiKeyEntry;
   openai?: ApiKeyEntry;
   anthropic?: ApiKeyEntry;
-  supabaseUrl?: string;
-  supabaseKey?: string;
 };
 
 export type ProviderConfig = {

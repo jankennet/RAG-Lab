@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/server/db/supabase";
+import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
 
 export const runtime = "nodejs";
 
 const createBenchmarkSchema = z.object({
-  datasetId: z.string().min(1),
-  questionField: z.string().min(1).default("question"),
-  referenceField: z.string().min(1).default("answer"),
-  limit: z.coerce.number().int().positive().default(10),
+  datasetId: z.string().min(1).max(64),
+  questionField: z.string().min(1).max(128).default("question"),
+  referenceField: z.string().min(1).max(128).default("answer"),
+  limit: z.coerce.number().int().positive().max(100).default(10),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const guard = applyApiGuard(request, RateLimits.default);
+    if (guard) return guard;
+
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from("benchmark_runs")
@@ -20,7 +24,8 @@ export async function GET() {
       .order("created_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[benchmarks] db error:", error.message);
+      return serverError();
     }
 
     return NextResponse.json({
@@ -35,17 +40,19 @@ export async function GET() {
       })),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[benchmarks] GET error:", error instanceof Error ? error.message : error);
+    return serverError();
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const guard = applyApiGuard(request, RateLimits.default);
+    if (guard) return guard;
+
     const body = createBenchmarkSchema.parse(await request.json());
     const supabase = createSupabaseAdminClient();
 
-    // Fetch the referenced dataset to get its name
     const { data: dataset } = await supabase
       .from("datasets")
       .select("name")
@@ -65,7 +72,8 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[benchmarks] db insert error:", error.message);
+      return serverError();
     }
 
     const mapped = data as Record<string, unknown>;
@@ -83,9 +91,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[benchmarks] POST error:", error instanceof Error ? error.message : error);
+    return serverError();
   }
 }

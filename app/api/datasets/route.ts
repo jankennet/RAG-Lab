@@ -1,29 +1,34 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createSupabaseAdminClient } from "@/server/db/supabase";
+import { createSupabaseReadClient, createSupabaseAdminClient } from "@/server/db/supabase";
+import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
 
 export const runtime = "nodejs";
 
 const createDatasetSchema = z.object({
   name: z.string().min(1).max(256),
   source: z.enum(["huggingface", "upload", "url"]),
-  sourceUrl: z.string().url().optional(),
-  datasetName: z.string().optional(),     // HF dataset name
-  datasetConfig: z.string().optional(),   // HF config
-  datasetSplit: z.string().optional(),    // HF split
-  maxRows: z.coerce.number().int().positive().default(100),
+  sourceUrl: z.string().url().max(2048).optional(),
+  datasetName: z.string().max(512).optional(),
+  datasetConfig: z.string().max(128).optional(),
+  datasetSplit: z.string().max(128).optional(),
+  maxRows: z.coerce.number().int().positive().max(100000).default(100),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const supabase = createSupabaseAdminClient();
+    const guard = applyApiGuard(request, RateLimits.datasets);
+    if (guard) return guard;
+
+    const supabase = createSupabaseReadClient();
     const { data, error } = await supabase
       .from("datasets")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[datasets] GET db error:", error.message);
+      return serverError();
     }
 
     return NextResponse.json({
@@ -38,13 +43,16 @@ export async function GET() {
       })),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[datasets] GET error:", error instanceof Error ? error.message : error);
+    return serverError();
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const guard = applyApiGuard(request, RateLimits.datasets);
+    if (guard) return guard;
+
     const body = createDatasetSchema.parse(await request.json());
     const supabase = createSupabaseAdminClient();
 
@@ -67,7 +75,8 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[datasets] POST db error:", error.message);
+      return serverError();
     }
 
     const mapped = data as Record<string, unknown>;
@@ -85,15 +94,18 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[datasets] POST error:", error instanceof Error ? error.message : error);
+    return serverError();
   }
 }
 
 export async function DELETE(request: Request) {
   try {
+    const guard = applyApiGuard(request, RateLimits.datasets);
+    if (guard) return guard;
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {
@@ -104,12 +116,13 @@ export async function DELETE(request: Request) {
     const { error } = await supabase.from("datasets").delete().eq("id", id);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[datasets] DELETE db error:", error.message);
+      return serverError();
     }
 
     return NextResponse.json({ deleted: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[datasets] DELETE error:", error instanceof Error ? error.message : error);
+    return serverError();
   }
 }

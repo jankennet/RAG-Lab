@@ -1,41 +1,44 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatAnswerSourceList, runRagGraph } from "@/server/rag/graph";
-import type { ApiKeyStore, LlmProvider } from "@/shared/types";
+import { getSessionApiKeys } from "@/server/auth/session";
+import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
+import type { LlmProvider } from "@/shared/types";
 
 export const runtime = "nodejs";
 
-const apiKeyEntrySchema = z.object({
-  key: z.string(),
-  validated: z.boolean(),
-  model: z.string().optional(),
-});
-
-const apiKeyStoreSchema: z.ZodType<ApiKeyStore> = z.object({
-  nvidia: apiKeyEntrySchema.optional(),
-  openai: apiKeyEntrySchema.optional(),
-  anthropic: apiKeyEntrySchema.optional(),
-  supabaseUrl: z.string().optional(),
-  supabaseKey: z.string().optional(),
-});
-
 const chatRequestSchema = z.object({
-  question: z.string().trim().min(1),
+  question: z.string().trim().min(1).max(8000),
   topK: z.coerce.number().int().min(1).max(8).default(4),
   provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
-  model: z.string().min(1).default("meta/llama-3.1-70b-instruct"),
-  apiKeys: apiKeyStoreSchema.default({}),
-  datasetId: z.string().optional(),
+  model: z.string().min(1).max(256).default("meta/llama-3.1-70b-instruct"),
+  datasetId: z.string().max(256).optional(),
 });
 
 export async function POST(request: Request) {
   try {
+    const guard = applyApiGuard(request, RateLimits.chat);
+    if (guard) return guard;
+
     const payload = chatRequestSchema.parse(await request.json());
+
+    // Read API keys from encrypted httpOnly cookie — never from the request body
+    const apiKeys = await getSessionApiKeys();
+
+    // Ensure the requested provider has a key
+    const entry = apiKeys[payload.provider];
+    if (!entry?.key) {
+      return NextResponse.json(
+        { error: `No API key configured for ${payload.provider}. Set it in Settings.` },
+        { status: 400 },
+      );
+    }
+
     const response = await runRagGraph(payload.question, {
       topK: payload.topK,
       provider: payload.provider as LlmProvider,
       model: payload.model,
-      apiKeys: payload.apiKeys,
+      apiKeys,
     });
 
     return NextResponse.json({
@@ -44,7 +47,10 @@ export async function POST(request: Request) {
       sources: formatAnswerSourceList(response.documents),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown server error";
-    return NextResponse.json({ error: message }, { status: 400 });
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    }
+    console.error("[chat] error:", error instanceof Error ? error.message : error);
+    return serverError();
   }
 }

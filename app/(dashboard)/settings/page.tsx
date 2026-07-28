@@ -5,18 +5,35 @@ import { useDashboard } from "../components/DashboardProvider";
 import type { LlmProvider } from "@/shared/types";
 import { PROVIDERS } from "@/shared/types";
 
-export default function SettingsPage() {
-  const { preferences, setProvider, setModel, setApiKey, validateApiKey } = useDashboard();
-  const [activeTab, setActiveTab] = useState<"models" | "apiKeys">("models");
-  const [validating, setValidating] = useState<Record<string, boolean>>({});
+const PROVIDER_LABELS: Record<LlmProvider, string> = {
+  nvidia: "NVIDIA NIM",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+};
 
-  const handleTestKey = async (provider: LlmProvider) => {
-    setValidating((prev) => ({ ...prev, [provider]: true }));
-    await validateApiKey(provider);
-    setValidating((prev) => ({ ...prev, [provider]: false }));
-  };
+export default function SettingsPage() {
+  const {
+    preferences,
+    setProvider,
+    setModel,
+    submitApiKey,
+    apiKeyStatus,
+  } = useDashboard();
+
+  const [activeTab, setActiveTab] = useState<"models" | "apiKeys">("models");
+  const [submitting, setSubmitting] = useState<Record<string, boolean>>({});
+  const [localKeys, setLocalKeys] = useState<Record<string, string>>({});
 
   const selectedProvider = PROVIDERS.find((p) => p.value === preferences.provider);
+
+  const handleSubmitKey = async (provider: LlmProvider) => {
+    const key = localKeys[provider];
+    if (!key) return;
+
+    setSubmitting((prev) => ({ ...prev, [provider]: true }));
+    await submitApiKey(provider, key);
+    setSubmitting((prev) => ({ ...prev, [provider]: false }));
+  };
 
   return (
     <div className="h-full overflow-y-auto">
@@ -49,7 +66,6 @@ export default function SettingsPage() {
                 Select your preferred LLM provider and model. Changes apply to all new chats.
               </p>
 
-              {/* Provider selector */}
               <div className="mb-6">
                 <label className="block text-sm font-medium mb-2 text-muted">Provider</label>
                 <select
@@ -65,9 +81,8 @@ export default function SettingsPage() {
                 </select>
               </div>
 
-              {/* Model selector */}
               <div className="mb-6">
-                <label className="block text-sm font-medium mb-2 text-sm">
+                <label className="block text-sm font-medium mb-2 text-muted">
                   Model ({selectedProvider?.label ?? ""})
                 </label>
                 <select
@@ -84,7 +99,6 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Providers reference */}
             <div className="bg-bg-alt rounded-2xl border border-line p-6">
               <h3 className="font-semibold mb-4">Available Providers</h3>
               <div className="space-y-3">
@@ -112,50 +126,46 @@ export default function SettingsPage() {
           <div className="bg-bg-alt rounded-2xl border border-line p-6">
             <h2 className="font-semibold mb-2">API Keys</h2>
             <p className="text-sm text-muted mb-6">
-              Add your API keys for each provider. Keys are stored in your browser's local storage.
+              Set your API keys. Keys are encrypted and stored in a secure httpOnly cookie — never exposed to JavaScript or localStorage.
             </p>
 
             <div className="space-y-6">
               {(["nvidia", "openai", "anthropic"] as LlmProvider[]).map((provider) => {
-                const entry = preferences.apiKeys[provider];
-                const isKeyValidated = entry?.validated ?? false;
-                const isKeyEmpty = !entry?.key;
-
-                const labels: Record<LlmProvider, string> = {
-                  nvidia: "NVIDIA NIM",
-                  openai: "OpenAI",
-                  anthropic: "Anthropic",
-                };
+                const status = apiKeyStatus[provider];
+                const isKeyValidated = status?.validated ?? false;
+                const isKeySet = status?.hasKey ?? false;
+                const isSubmitting = submitting[provider] ?? false;
 
                 return (
                   <div key={provider} className="border-b border-line/50 last:border-b-0 pb-5 last:pb-0">
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium">{labels[provider]}</span>
+                      <span className="text-sm font-medium">{PROVIDER_LABELS[provider]}</span>
                       <span
                         className={`px-2 py-0.5 text-xs rounded-full font-medium ${
                           isKeyValidated
                             ? "bg-success/20 text-success"
-                            : isKeyEmpty
-                              ? "bg-danger/20 text-danger"
-                              : "bg-warning/20 text-warning"
+                            : isKeySet
+                              ? "bg-warning/20 text-warning"
+                              : "bg-danger/20 text-danger"
                         }`}
                       >
-                        {isKeyValidated ? "Valid" : isKeyEmpty ? "Not set" : "Untested"}
+                        {isKeyValidated ? "Valid" : isKeySet ? "Untested" : "Not set"}
                       </span>
                     </div>
                     <input
                       type="password"
-                      value={entry?.key ?? ""}
-                      onChange={(e) => setApiKey(provider, e.target.value)}
+                      value={localKeys[provider] ?? ""}
+                      onChange={(e) => setLocalKeys((prev) => ({ ...prev, [provider]: e.target.value }))}
                       className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors mb-2"
-                      placeholder={`Enter your ${labels[provider]} API key`}
+                      placeholder={`Enter your ${PROVIDER_LABELS[provider]} API key`}
+                      autoComplete="off"
                     />
                     <button
-                      onClick={() => handleTestKey(provider)}
-                      disabled={!entry?.key || validating[provider]}
+                      onClick={() => handleSubmitKey(provider)}
+                      disabled={!localKeys[provider] || isSubmitting}
                       className="w-full px-3 py-2 bg-accent/10 border border-accent/20 text-accent text-sm font-medium rounded-xl hover:bg-accent/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {validating[provider] ? "Testing..." : "Test Key"}
+                      {isSubmitting ? "Testing & saving..." : "Save & Validate"}
                     </button>
                   </div>
                 );

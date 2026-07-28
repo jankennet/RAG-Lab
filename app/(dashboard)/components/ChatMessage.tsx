@@ -3,6 +3,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeSanitize from "rehype-sanitize";
 import type { RagDocument } from "@/shared/types";
 
 interface ChatMessageProps {
@@ -13,6 +14,21 @@ interface ChatMessageProps {
     timestamp: number;
     sources?: RagDocument[];
   };
+}
+
+/** Block dangerous URL schemes that could execute JavaScript or exfiltrate data. */
+function safeUrl(url: string): string {
+  if (!url) return "";
+  const lowered = url.trim().toLowerCase();
+  if (
+    lowered.startsWith("javascript:") ||
+    lowered.startsWith("data:") ||
+    lowered.startsWith("vbscript:") ||
+    lowered.startsWith("file:")
+  ) {
+    return "";
+  }
+  return url;
 }
 
 export default function ChatMessage({ message }: ChatMessageProps) {
@@ -39,7 +55,10 @@ export default function ChatMessage({ message }: ChatMessageProps) {
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
             <div className="prose-chat">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeSanitize]}
+              >
                 {message.content}
               </ReactMarkdown>
             </div>
@@ -77,9 +96,9 @@ export default function ChatMessage({ message }: ChatMessageProps) {
                     <p className="text-muted line-clamp-3">{source.content}</p>
                     {source.sourceUrl && (
                       <a
-                        href={source.sourceUrl}
+                        href={safeUrl(source.sourceUrl)}
                         target="_blank"
-                        rel="noopener noreferrer"
+                        rel="noopener noreferrer nofollow"
                         className="text-accent hover:underline mt-1 inline-block"
                       >
                         {source.sourceName}

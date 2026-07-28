@@ -1,5 +1,5 @@
 import { createEmbeddingsModel } from "@/server/rag/embeddings";
-import { createSupabaseAdminClient } from "@/server/db/supabase";
+import { createSupabaseReadClient } from "@/server/db/supabase";
 import type { ApiKeyStore, LlmProvider, RagDocument } from "@/shared/types";
 
 type MatchDocumentRow = {
@@ -20,7 +20,7 @@ export async function retrieveDocuments(
   provider: LlmProvider = "nvidia",
   apiKeys: ApiKeyStore = {}
 ): Promise<RagDocument[]> {
-  const supabase = createSupabaseAdminClient();
+  const supabase = createSupabaseReadClient();
   const embeddings = createEmbeddingsModel(provider, apiKeys);
   const queryEmbedding = await embeddings.embedQuery(question);
 

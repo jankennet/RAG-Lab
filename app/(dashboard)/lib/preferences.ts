@@ -1,9 +1,8 @@
-import type { ApiKeyStore, LlmProvider } from "@/shared/types";
+import type { LlmProvider } from "@/shared/types";
 
 export type DashboardPreferences = {
   provider: LlmProvider;
   model: string;
-  apiKeys: ApiKeyStore;
   activeDatasetId: string;
   topK: number;
 };
@@ -11,13 +10,6 @@ export type DashboardPreferences = {
 export const defaultDashboardPreferences: DashboardPreferences = {
   provider: "nvidia",
   model: "meta/llama-3.1-70b-instruct",
-  apiKeys: {
-    nvidia: { key: "", validated: false },
-    openai: { key: "", validated: false },
-    anthropic: { key: "", validated: false },
-    supabaseUrl: "",
-    supabaseKey: "",
-  },
   activeDatasetId: "",
   topK: 4,
 };

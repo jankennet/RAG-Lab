@@ -1,17 +1,25 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/server/db/supabase";
+import { createSupabaseReadClient } from "@/server/db/supabase";
+import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params;
-    const supabase = createSupabaseAdminClient();
+    const guard = applyApiGuard(request, RateLimits.datasets);
+    if (guard) return guard;
 
-    // Fetch dataset metadata
+    const { id } = await params;
+
+    if (!id || id.length > 64) {
+      return NextResponse.json({ error: "Invalid dataset id" }, { status: 400 });
+    }
+
+    const supabase = createSupabaseReadClient();
+
     const { data, error } = await supabase
       .from("datasets")
       .select("*")
@@ -19,10 +27,10 @@ export async function GET(
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 404 });
+      console.error("[datasets/:id] db error:", error.message);
+      return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
     }
 
-    // Fetch document chunks for this dataset
     const { data: chunks, error: chunksError } = await supabase
       .from("documents")
       .select("*")
@@ -31,7 +39,7 @@ export async function GET(
       .limit(50);
 
     if (chunksError) {
-      console.warn("Failed to fetch chunks:", chunksError.message);
+      console.warn("[datasets/:id] chunks error:", chunksError.message);
     }
 
     const d = data as Record<string, unknown>;
@@ -60,7 +68,7 @@ export async function GET(
       })),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[datasets/[id]] error:", error instanceof Error ? error.message : error);
+    return serverError();
   }
 }

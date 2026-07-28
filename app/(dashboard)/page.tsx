@@ -61,13 +61,17 @@ export default function ChatPage() {
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(process.env.NEXT_PUBLIC_AUTH_TOKEN
+              ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_AUTH_TOKEN}` }
+              : {}),
+          },
           body: JSON.stringify({
             question: userMessage.content,
             topK: preferences.topK ?? 4,
             provider: preferences.provider,
             model: preferences.model,
-            apiKeys: preferences.apiKeys,
             datasetId: preferences.activeDatasetId,
           }),
         });

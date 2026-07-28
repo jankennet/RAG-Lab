@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import type { ApiKeyStore, LlmProvider } from "@/shared/types";
+import type { LlmProvider } from "@/shared/types";
 import { PROVIDERS } from "@/shared/types";
 import {
   loadDashboardPreferences,
@@ -10,13 +10,16 @@ import {
   type DashboardPreferences,
 } from "../lib/preferences";
 
+type ApiKeyStatus = Record<string, { validated: boolean; hasKey: boolean }>;
+
 type DashboardContextValue = {
   preferences: DashboardPreferences;
+  apiKeyStatus: ApiKeyStatus;
   setProvider: (provider: LlmProvider) => void;
   setModel: (model: string) => void;
   setTopK: (topK: number) => void;
-  setApiKey: (provider: LlmProvider, key: string) => void;
-  validateApiKey: (provider: LlmProvider) => Promise<boolean>;
+  submitApiKey: (provider: LlmProvider, key: string) => Promise<boolean>;
+  fetchApiKeyStatus: () => Promise<void>;
   setActiveDataset: (datasetId: string) => void;
   hydrate: () => void;
 };
@@ -29,11 +32,22 @@ export function useDashboard(): DashboardContextValue {
   return ctx;
 }
 
+const AUTH_TOKEN = process.env.NEXT_PUBLIC_AUTH_TOKEN ?? "";
+
+function apiHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (AUTH_TOKEN) {
+    headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
+  }
+  return headers;
+}
+
 export default function DashboardProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<DashboardPreferences>(defaultDashboardPreferences);
+  const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus>({});
   const [mounted, setMounted] = useState(false);
 
-  // On mount, load from localStorage
+  // On mount, load preferences from localStorage (NO keys)
   useEffect(() => {
     if (typeof window !== "undefined") {
       setPreferences(loadDashboardPreferences());
@@ -41,16 +55,24 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     }
   }, []);
 
-  // Persist to localStorage whenever preferences change (after initial mount)
+  // Persist preferences to localStorage (NO keys)
   useEffect(() => {
     if (mounted) {
       saveDashboardPreferences(preferences);
     }
   }, [preferences, mounted]);
 
+  // Check session status on mount
+  useEffect(() => {
+    if (mounted) {
+      fetchApiKeyStatus();
+    }
+  }, [mounted]);
+
   const hydrate = useCallback(() => {
     if (typeof window !== "undefined") {
       setPreferences(loadDashboardPreferences());
+      fetchApiKeyStatus();
     }
   }, []);
 
@@ -69,48 +91,38 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     setPreferences((prev) => ({ ...prev, topK }));
   }, []);
 
-  const setApiKey = useCallback((provider: LlmProvider, key: string) => {
-    setPreferences((prev) => ({
-      ...prev,
-      apiKeys: {
-        ...prev.apiKeys,
-        [provider]: { key, validated: false },
-      },
-    }));
+  const fetchApiKeyStatus = useCallback(async (): Promise<void> => {
+    try {
+      const response = await fetch("/api/session", {
+        method: "GET",
+        headers: apiHeaders(),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setApiKeyStatus(data.status ?? {});
+      }
+    } catch {
+      // Session not available — ignore
+    }
   }, []);
 
-  const validateApiKey = useCallback(async (provider: LlmProvider): Promise<boolean> => {
-    const entry = preferences.apiKeys[provider];
-    if (!entry?.key) return false;
-
+  /** Submit an API key to the server. It is encrypted and stored in an httpOnly cookie. */
+  const submitApiKey = useCallback(async (provider: LlmProvider, key: string): Promise<boolean> => {
     try {
-      const response = await fetch("/api/keys/validate", {
+      const response = await fetch("/api/session", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, key: entry.key }),
+        headers: apiHeaders(),
+        body: JSON.stringify({ provider, key }),
       });
       const data = await response.json();
       const valid = response.ok && data.valid === true;
-      // Mark validated in preferences
-      setPreferences((prev) => ({
-        ...prev,
-        apiKeys: {
-          ...prev.apiKeys,
-          [provider]: { ...(prev.apiKeys[provider] ?? { key: "" }), validated: valid },
-        },
-      }));
+      // Refresh status
+      await fetchApiKeyStatus();
       return valid;
     } catch {
-      setPreferences((prev) => ({
-        ...prev,
-        apiKeys: {
-          ...prev.apiKeys,
-          [provider]: { ...(prev.apiKeys[provider] ?? { key: "" }), validated: false },
-        },
-      }));
       return false;
     }
-  }, [preferences.apiKeys, setApiKey]);
+  }, [fetchApiKeyStatus]);
 
   const setActiveDataset = useCallback((datasetId: string) => {
     setPreferences((prev) => ({ ...prev, activeDatasetId: datasetId }));
@@ -120,11 +132,12 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     <DashboardContext.Provider
       value={{
         preferences,
+        apiKeyStatus,
         setProvider,
         setModel,
         setTopK,
-        setApiKey,
-        validateApiKey,
+        submitApiKey,
+        fetchApiKeyStatus,
         setActiveDataset,
         hydrate,
       }}

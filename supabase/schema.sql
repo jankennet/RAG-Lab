@@ -57,7 +57,8 @@ as $$
   limit match_count;
 $$;
 
-grant usage on schema public to anon, authenticated, service_role;
+-- Only service_role can access the schema — all queries go through the Next.js server.
+-- anon and authenticated have no direct access to rag_documents.
+grant usage on schema public to service_role;
 grant select, insert, update, delete on table public.rag_documents to service_role;
-grant select on table public.rag_documents to anon, authenticated, service_role;
-grant execute on function public.match_documents(vector(1024), integer, text) to anon, authenticated, service_role;
+grant execute on function public.match_documents(vector(1024), integer, text) to service_role;
