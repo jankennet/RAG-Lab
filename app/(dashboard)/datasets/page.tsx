@@ -360,7 +360,7 @@ export default function DatasetsPage() {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".txt,.md,.json,.csv,.html,.htm,.xml,.log"
+                  accept=".txt,.md,.json,.csv,.html,.htm,.xml,.log,.sql,.pdf"
                   onChange={handleFileChange}
                   className="hidden"
                 />
@@ -390,7 +390,7 @@ export default function DatasetsPage() {
                         Drop files here or click to browse
                       </p>
                       <p className="text-xs text-muted mt-1">
-                        TXT, JSON, CSV, MD, HTML, XML · 10 MB per file · 50 MB total
+                        TXT, JSON, CSV, MD, HTML, XML, SQL, PDF · 10 MB per file · 50 MB total
                       </p>
                     </div>
                   )}

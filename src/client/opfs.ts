@@ -175,6 +175,16 @@ export async function deleteDataset(id: string): Promise<void> {
   await saveIndex(index.filter((d) => d.id !== id));
 }
 
+/** Delete ALL datasets and the index. Irreversible. */
+export async function deleteAllDatasets(): Promise<void> {
+  const root = await rootDir();
+  try {
+    await root.removeEntry(DATA_DIR, { recursive: true });
+  } catch {
+    // Directory may not exist — nothing to delete
+  }
+}
+
 // ── Keyword Search ─────────────────────────────────────────────
 
 /**

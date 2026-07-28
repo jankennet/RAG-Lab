@@ -83,3 +83,11 @@ export function clearApiKey(provider: LlmProvider) {
   delete keys[provider];
   window.localStorage.setItem(API_KEYS_KEY, JSON.stringify(keys));
 }
+
+/** Wipe all localStorage data managed by this app. */
+export function clearAllLocalData() {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(API_KEYS_KEY);
+}

@@ -8,9 +8,11 @@ import {
   saveDashboardPreferences,
   loadApiKeys,
   saveApiKey,
+  clearAllLocalData,
   defaultDashboardPreferences,
   type DashboardPreferences,
 } from "../lib/preferences";
+import { deleteAllDatasets } from "@/client/opfs";
 
 type ApiKeyStatus = Record<string, { validated: boolean; hasKey: boolean }>;
 
@@ -28,6 +30,7 @@ type DashboardContextValue = {
   fetchApiKeyStatus: () => Promise<void>;
   setActiveDataset: (datasetId: string) => void;
   hydrate: () => void;
+  nukeEverything: () => Promise<void>;
 };
 
 const DashboardContext = createContext<DashboardContextValue | null>(null);
@@ -185,6 +188,31 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     setPreferences((prev) => ({ ...prev, activeDatasetId: datasetId }));
   }, []);
 
+  /** Delete everything: server cookie, localStorage, OPFS datasets. Resets state. */
+  const nukeEverything = useCallback(async (): Promise<void> => {
+    // 1. Delete server session cookie
+    try {
+      await fetch("/api/session", { method: "DELETE", headers: apiHeaders() });
+    } catch {
+      // Server unreachable — continue with local wipe
+    }
+
+    // 2. Wipe OPFS datasets
+    try {
+      await deleteAllDatasets();
+    } catch {
+      // OPFS may not be available
+    }
+
+    // 3. Clear localStorage
+    clearAllLocalData();
+
+    // 4. Reset state to defaults
+    setPreferences(defaultDashboardPreferences);
+    setApiKeys({});
+    setApiKeyStatus({});
+  }, []);
+
   return (
     <DashboardContext.Provider
       value={{
@@ -201,6 +229,7 @@ export default function DashboardProvider({ children }: { children: ReactNode })
         fetchApiKeyStatus,
         setActiveDataset,
         hydrate,
+        nukeEverything,
       }}
     >
       {children}

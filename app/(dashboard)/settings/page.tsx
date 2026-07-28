@@ -23,14 +23,18 @@ export default function SettingsPage() {
     setMaxTokens,
     submitApiKey,
     apiKeyStatus,
+    nukeEverything,
   } = useDashboard();
 
-  const [activeTab, setActiveTab] = useState<"models" | "apiKeys">("models");
+  const [activeTab, setActiveTab] = useState<"models" | "apiKeys" | "data">("models");
   const [submitting, setSubmitting] = useState<Record<string, boolean>>({});
   const [localKeys, setLocalKeys] = useState<Record<string, string>>({});
   const [dynamicModels, setDynamicModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [isCustomModel, setIsCustomModel] = useState(false);
+  const [nukeConfirm, setNukeConfirm] = useState("");
+  const [nuking, setNuking] = useState(false);
+  const [nukeDone, setNukeDone] = useState(false);
 
   const selectedProvider = PROVIDERS.find((p) => p.value === preferences.provider);
 
@@ -92,7 +96,7 @@ export default function SettingsPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-8 p-1 bg-bg-alt rounded-xl w-fit">
-          {(["models", "apiKeys"] as const).map((tab) => (
+          {(["models", "apiKeys", "data"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -102,7 +106,7 @@ export default function SettingsPage() {
                   : "text-muted hover:text-text"
               }`}
             >
-              {tab === "models" ? "Models" : "API Keys"}
+              {tab === "models" ? "Models" : tab === "apiKeys" ? "API Keys" : "Data"}
             </button>
           ))}
         </div>
@@ -183,74 +187,107 @@ export default function SettingsPage() {
               </p>
 
               <div className="space-y-5">
+                {/* Top K */}
                 <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-sm font-medium text-muted">Top K</label>
-                    <span className="text-xs text-muted">{preferences.topK ?? 4}</span>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Top K</label>
+                  <div className="flex gap-3">
+                    <input
+                      type="range"
+                      min={1}
+                      max={100}
+                      step={1}
+                      value={preferences.topK ?? 4}
+                      onChange={(e) => setTopK(Number(e.target.value))}
+                      className="flex-1 h-1.5 self-center bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      step={1}
+                      value={preferences.topK ?? 4}
+                      onChange={(e) => setTopK(Math.max(1, Number(e.target.value)))}
+                      className="w-20 px-2 py-1.5 bg-[#03111a] border border-line rounded-lg text-sm text-text text-center outline-none focus:border-accent/40 transition-colors"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={20}
-                    step={1}
-                    value={preferences.topK ?? 4}
-                    onChange={(e) => setTopK(Number(e.target.value))}
-                    className="w-full h-1.5 bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
-                  />
-                  <p className="text-xs text-muted mt-1">Number of documents retrieved for context</p>
+                  <p className="text-xs text-muted mt-1">Number of documents retrieved for context (1–100)</p>
                 </div>
 
+                {/* Temperature */}
                 <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-sm font-medium text-muted">Temperature</label>
-                    <span className="text-xs text-muted">{(preferences.temperature ?? 0.2).toFixed(2)}</span>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Temperature</label>
+                  <div className="flex gap-3">
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={0.05}
+                      value={preferences.temperature ?? 0.2}
+                      onChange={(e) => setTemperature(Number(e.target.value))}
+                      className="flex-1 h-1.5 my-auto bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={2}
+                      step={0.05}
+                      value={preferences.temperature ?? 0.2}
+                      onChange={(e) => setTemperature(Number(e.target.value))}
+                      className="w-24 px-3 py-1.5 bg-[#03111a] border border-line rounded-lg text-sm text-text text-center outline-none focus:border-accent/40 transition-colors"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={2}
-                    step={0.05}
-                    value={preferences.temperature ?? 0.2}
-                    onChange={(e) => setTemperature(Number(e.target.value))}
-                    className="w-full h-1.5 bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
-                  />
-                  <p className="flex justify-between text-xs text-muted mt-1">
-                    <span>0.0 (deterministic)</span>
-                    <span>2.0 (creative)</span>
-                  </p>
+                  <p className="text-xs text-muted mt-1">0.0 (deterministic) – 2.0 (creative)</p>
                 </div>
 
+                {/* Top P */}
                 <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-sm font-medium text-muted">Top P</label>
-                    <span className="text-xs text-muted">{(preferences.topP ?? 0.9).toFixed(2)}</span>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Top P</label>
+                  <div className="flex gap-3">
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={preferences.topP ?? 0.9}
+                      onChange={(e) => setTopP(Number(e.target.value))}
+                      className="flex-1 h-1.5 my-auto bg-accent rounded-lg appearance-none cursor-pointer accent-accent"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={preferences.topP ?? 0.9}
+                      onChange={(e) => setTopP(Number(e.target.value))}
+                      className="w-24 px-3 py-1.5 bg-[#03111a] border border-line rounded-lg text-sm text-text text-center outline-none focus:border-accent/40 transition-colors"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={preferences.topP ?? 0.9}
-                    onChange={(e) => setTopP(Number(e.target.value))}
-                    className="w-full h-1.5 bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
-                  />
-                  <p className="text-xs text-muted mt-1">Nucleus sampling: cumulative probability threshold</p>
+                  <p className="text-xs text-muted mt-1">Nucleus sampling: cumulative probability threshold (0.0–1.0)</p>
                 </div>
 
+                {/* Max Tokens */}
                 <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-sm font-medium text-muted">Max Tokens</label>
-                    <span className="text-xs text-muted">{preferences.maxTokens ?? 4096}</span>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Max Tokens</label>
+                  <div className="flex gap-3">
+                    <input
+                      type="range"
+                      min={256}
+                      max={32768}
+                      step={256}
+                      value={preferences.maxTokens ?? 4096}
+                      onChange={(e) => setMaxTokens(Number(e.target.value))}
+                      className="flex-1 h-1.5 my-auto bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      max={131072}
+                      step={1}
+                      value={preferences.maxTokens ?? 4096}
+                      onChange={(e) => setMaxTokens(Math.max(1, Number(e.target.value)))}
+                      className="w-24 px-3 py-1.5 bg-[#03111a] border border-line rounded-lg text-sm text-text text-center outline-none focus:border-accent/40 transition-colors"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={256}
-                    max={32768}
-                    step={256}
-                    value={preferences.maxTokens ?? 4096}
-                    onChange={(e) => setMaxTokens(Number(e.target.value))}
-                    className="w-full h-1.5 bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
-                  />
                   <p className="text-xs text-muted mt-1">Maximum response length in tokens</p>
                 </div>
               </div>
@@ -332,6 +369,53 @@ export default function SettingsPage() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Data tab — nuke everything */}
+        {activeTab === "data" && (
+          <div className="bg-bg-alt rounded-2xl border border-danger/30 p-6">
+            <h2 className="font-semibold mb-2 text-danger">Delete All Data</h2>
+            <p className="text-sm text-muted mb-6">
+              This permanently deletes all datasets, API keys, preferences, and session data from this browser. Only affects this webapp. Data cannot be recovered.
+            </p>
+
+            {nukeDone ? (
+              <div className="bg-success/10 border border-success/20 rounded-xl px-4 py-3 text-sm text-success">
+                All data deleted. App reset to defaults.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1.5">
+                    Type <code className="text-danger bg-danger/10 px-1.5 py-0.5 rounded">DELETE</code> to confirm
+                  </label>
+                  <input
+                    type="text"
+                    value={nukeConfirm}
+                    onChange={(e) => setNukeConfirm(e.target.value)}
+                    placeholder="DELETE"
+                    className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-danger/40 transition-colors"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </div>
+                <button
+                  onClick={async () => {
+                    if (nukeConfirm !== "DELETE") return;
+                    setNuking(true);
+                    await nukeEverything();
+                    setNuking(false);
+                    setNukeDone(true);
+                    setNukeConfirm("");
+                  }}
+                  disabled={nukeConfirm !== "DELETE" || nuking}
+                  className="w-full px-4 py-2.5 bg-danger text-white font-semibold rounded-xl hover:bg-danger/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {nuking ? "Deleting..." : nukeConfirm === "DELETE" ? "Delete Everything" : "Delete Everything (type DELETE above)"}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
