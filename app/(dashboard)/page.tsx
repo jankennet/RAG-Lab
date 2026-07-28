@@ -1,182 +1,150 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChatInput } from "./components/ChatInput";
-import { ChatMessage } from "./components/ChatMessage";
-import { DatasetCard } from "./components/DatasetCard";
-import { SourceCard } from "./components/SourceCard";
-import { loadDashboardPreferences } from "@/lib/dashboard-preferences";
-import { dashboardDatasets, suggestedPrompts } from "@/lib/dashboard-data";
-import type { ChatMessage as ChatMessageType } from "@/lib/types";
+import { useState, useEffect, useRef } from "react";
+import { useDashboard } from "./components/DashboardProvider";
+import ChatMessage from "./components/ChatMessage";
+import ChatInput from "./components/ChatInput";
+import ModelSelector from "./components/ModelSelector";
+import { v4 as uuidv4 } from "uuid";
+import type { RagDocument } from "@/lib/types";
 
 export default function ChatPage() {
-  const [prompt, setPrompt] = useState("Ask about your dataset, docs, or benchmark.");
-  const [isSending, setIsSending] = useState(false);
-  const [messages, setMessages] = useState<ChatMessageType[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content:
-        "Drop dataset, ask question, get grounded answer. Settings panel keeps provider and keys local until backend ready.",
-      createdAt: Date.now()
-    }
-  ]);
-  const [activeDatasetId, setActiveDatasetId] = useState(dashboardDatasets[0]?.id ?? "");
-  const [providerState, setProviderState] = useState(loadDashboardPreferences());
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const { preferences } = useDashboard();
+  const [messages, setMessages] = useState<
+    Array<{
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+      timestamp: number;
+      sources?: RagDocument[];
+    }>
+  >([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Welcome message
   useEffect(() => {
-    setProviderState(loadDashboardPreferences());
-  }, []);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [messages]);
-
-  const activeDataset = useMemo(
-    () => dashboardDatasets.find((dataset) => dataset.id === activeDatasetId) ?? dashboardDatasets[0],
-    [activeDatasetId]
-  );
-
-  async function handleSend(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed || isSending) {
-      return;
+    if (messages.length === 0) {
+      setMessages([
+        {
+          id: uuidv4(),
+          role: "assistant",
+          content: "Hello! I'm your AI assistant. How can I help you today?",
+          timestamp: Date.now(),
+        },
+      ]);
     }
+  }, [messages.length]);
 
-    const userMessage: ChatMessageType = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: trimmed,
-      createdAt: Date.now()
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+
+    const userMessage = {
+      id: uuidv4(),
+      role: "user" as const,
+      content: input,
+      timestamp: Date.now(),
     };
 
-    setMessages((current) => [...current, userMessage]);
-    setPrompt("");
-    setIsSending(true);
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+    setIsLoading(true);
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question: trimmed,
+          question: input,
           topK: 4,
-          provider: providerState.provider,
-          model: providerState.model,
-          apiKeys: providerState.apiKeys,
-          datasetId: activeDatasetId
-        })
+          provider: preferences.provider,
+          model: preferences.model,
+          apiKeys: preferences.apiKeys,
+          datasetId: preferences.activeDatasetId,
+        }),
       });
 
-      const payload = (await response.json()) as { answer?: string; documents?: ChatMessageType["sources"]; error?: string };
-
       if (!response.ok) {
-        throw new Error(payload.error ?? "Request failed");
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: payload.answer ?? "",
-          sources: payload.documents,
-          createdAt: Date.now()
-        }
-      ]);
-    } catch (error) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: error instanceof Error ? error.message : "Unknown error",
-          createdAt: Date.now()
-        }
-      ]);
+      const data = await response.json();
+
+      const assistantMessage = {
+        id: uuidv4(),
+        role: "assistant" as const,
+        content: data.answer,
+        timestamp: Date.now(),
+        sources: data.documents ?? [],
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      const errorMessage = {
+        id: uuidv4(),
+        role: "assistant" as const,
+        content: "Sorry, I encountered an error. Please try again.",
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
-      setIsSending(false);
+      setIsLoading(false);
     }
-  }
+  };
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   return (
-    <section className="chat-page">
-      <div className="chat-grid">
-        <div className="chat-stage panel-surface">
-          <div className="chat-hero">
-            <div>
-              <p className="eyebrow">ChatGPT x Claude style workspace</p>
-              <h1 className="page-title">Ask your data.</h1>
-              <p className="page-lede">
-                Bring own keys, own datasets, and one clean chat surface. Build for retrieval, benchmarking, and fast iteration.
-              </p>
-            </div>
-
-            <div className="chat-metrics">
-              <DatasetCard dataset={activeDataset} compact />
-              <div className="metric-stack">
-                <div className="metric-card">
-                  <span>Provider</span>
-                  <strong>{providerState.provider}</strong>
-                </div>
-                <div className="metric-card">
-                  <span>Model</span>
-                  <strong>{providerState.model}</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="prompt-chips">
-            {suggestedPrompts.map((item) => (
-              <button key={item} type="button" className="prompt-chip" onClick={() => setPrompt(item)}>
-                {item}
-              </button>
-            ))}
-          </div>
-
-          <div className="chat-stream">
-            {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
-            ))}
-            <div ref={bottomRef} />
-          </div>
-
-          <ChatInput value={prompt} onChange={setPrompt} onSend={handleSend} sending={isSending} />
+    <div className="flex flex-col h-full">
+      {/* Top bar: model selector + dataset info */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-line">
+        <div className="flex items-center gap-3">
+          <ModelSelector
+            provider={preferences.provider}
+            onModelChange={() => {}}
+            initialModel={preferences.model}
+          />
+          <span className="text-xs text-muted">
+            Top K: 4
+          </span>
         </div>
-
-        <aside className="chat-rail">
-          <div className="rail-panel panel-surface">
-            <div className="section-head">
-              <h2>Sources</h2>
-              <span>Live context</span>
-            </div>
-            <div className="source-stack">
-              {messages
-                .slice()
-                .reverse()
-                .find((message) => message.sources?.length)?.sources?.map((source, index) => (
-                  <SourceCard key={`${source.id}-${source.chunkIndex}`} source={source} rank={index + 1} />
-                )) ?? <p className="muted-copy">Ask question to surface retrieved chunks here.</p>}
-            </div>
-          </div>
-
-          <div className="rail-panel panel-surface">
-            <div className="section-head">
-              <h2>Workspace</h2>
-              <span>Dataset picker</span>
-            </div>
-            <div className="dataset-stack">
-              {dashboardDatasets.map((dataset) => (
-                <button key={dataset.id} type="button" className="dataset-pick" onClick={() => setActiveDatasetId(dataset.id)}>
-                  <DatasetCard dataset={dataset} active={dataset.id === activeDatasetId} />
-                </button>
-              ))}
-            </div>
-          </div>
-        </aside>
+        <div className="text-xs text-muted">
+          Provider: {preferences.provider}
+        </div>
       </div>
-    </section>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto pb-4 px-4">
+        <div className="mb-6">
+          {messages.map((msg) => (
+            <ChatMessage key={msg.id} message={msg} />
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+
+      {/* Input */}
+      <form onSubmit={handleSubmit} className="flex px-4 py-2 bg-bg/50 backdrop-blur-sm border-t border-line">
+        <ChatInput
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          disabled={isLoading}
+          placeholder="Ask a question..."
+        />
+        <button
+          type="submit"
+          disabled={isLoading || !input.trim()}
+          className="ml-2 px-4 py-2 bg-accent text-[#03111a] font-bold rounded-md hover:bg-accent/80 transition-colors disabled:opacity-50"
+        >
+          {isLoading ? "Thinking..." : "Send"}
+        </button>
+      </form>
+    </div>
   );
 }

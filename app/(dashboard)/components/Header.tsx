@@ -1,32 +1,18 @@
-"use client";
+import Link from "next/link";
 
-import { usePathname } from "next/navigation";
-
-const titles: Record<string, { title: string; subtitle: string }> = {
-  "/": { title: "Chat", subtitle: "Grounded assistant for user datasets and docs." },
-  "/datasets": { title: "Datasets", subtitle: "Upload files, test URLs, and inspect imports." },
-  "/settings": { title: "Settings", subtitle: "Store provider keys, pick model, wire Supabase." }
-};
-
-export function Header() {
-  const pathname = usePathname();
-  const current = pathname.startsWith("/datasets")
-    ? titles["/datasets"]
-    : pathname.startsWith("/settings")
-      ? titles["/settings"]
-      : titles["/"];
-
+export default function Header() {
   return (
-    <header className="topbar">
-      <div>
-        <p className="topbar-kicker">Multi-Source Agentic RAG Platform</p>
-        <h1>{current.title}</h1>
-        <p>{current.subtitle}</p>
+    <header className="flex items-center justify-between px-6 py-4 border-b border-line bg-bg/50 backdrop-blur-sm">
+      <div className="flex items-center space-x-3">
+        <div className="h-8 w-8 bg-accent rounded-full flex items-center justify-center">
+          <span className="text-white text-sm font-bold">AR</span>
+        </div>
+        <h1 className="text-xl font-bold text-text">Agentic RAG</h1>
       </div>
-
-      <div className="topbar-actions">
-        <button className="ghost-button" type="button">Preview</button>
-        <button className="primary-button" type="button">Deploy</button>
+      <div className="flex items-center space-x-4 text-sm text-muted">
+        <Link href="/" className="hover:text-text transition-colors">
+          New Chat
+        </Link>
       </div>
     </header>
   );

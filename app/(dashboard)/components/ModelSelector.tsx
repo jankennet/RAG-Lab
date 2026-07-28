@@ -1,41 +1,49 @@
-import type { ProviderConfig, LlmProvider } from "@/lib/types";
+import { ProviderConfig, PROVIDERS } from "@/lib/types";
+import { useState } from "react";
 
-type ModelSelectorProps = {
-  provider: LlmProvider;
-  model: string;
-  providers: ProviderConfig[];
-  onChange: (provider: LlmProvider, model: string) => void;
-};
+interface ModelSelectorProps {
+  provider: "nvidia" | "openai" | "anthropic";
+  onModelChange: (model: string) => void;
+  initialModel?: string;
+}
 
-export function ModelSelector({ provider, model, providers, onChange }: ModelSelectorProps) {
-  const activeProvider = providers.find((item) => item.value === provider) ?? providers[0];
+export default function ModelSelector({
+  provider,
+  onModelChange,
+  initialModel,
+}: ModelSelectorProps) {
+  const providerInfo = PROVIDERS.find((p) => p.value === provider);
+  const [model, setModel] = useState<string>(initialModel || (providerInfo?.defaultModel ?? ""));
+
+  const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedModel = e.target.value;
+    setModel(selectedModel);
+    onModelChange(selectedModel);
+  };
+
+  if (!providerInfo) {
+    return <div>Invalid provider</div>;
+  }
 
   return (
-    <div className="model-selector">
-      <div className="section-head">
-        <h2>Provider</h2>
-        <span>Model routing</span>
-      </div>
-
-      <div className="provider-row">
-        {providers.map((item) => (
-          <button key={item.value} type="button" className={`provider-chip${item.value === provider ? " active" : ""}`} onClick={() => onChange(item.value, item.defaultModel)}>
-            <span>{item.icon}</span>
-            <strong>{item.label}</strong>
-          </button>
-        ))}
-      </div>
-
-      <label className="field-block">
-        <span className="field-label">Model</span>
-        <select className="field-input" value={model} onChange={(event) => onChange(provider, event.target.value)}>
-          {activeProvider.models.map((item) => (
-            <option key={item} value={item}>
-              {item}
+    <div className="bg-bg/50 backdrop-blur-sm rounded-xl border border-line p-4">
+      <div className="mb-2">
+        <span className="text-xs text-muted">Model</span>
+        <select
+          value={model}
+          onChange={handleModelChange}
+          className="mt-1 block w-full rounded-md bg-bg/60 border-line px-3 py-2 text-text-sm outline-none focus:border-accent"
+        >
+          {providerInfo.models.map((m) => (
+            <option key={m} value={m}>
+              {m}
             </option>
           ))}
         </select>
-      </label>
+      </div>
+      <div className="text-xs text-muted">
+        Current: {model}
+      </div>
     </div>
   );
 }

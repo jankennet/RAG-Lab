@@ -1,6 +1,6 @@
-import { createNimEmbeddingsModel } from "@/lib/nim";
+import { createEmbeddingsModel } from "@/lib/embeddings";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import type { RagDocument } from "@/lib/types";
+import type { ApiKeyStore, LlmProvider, RagDocument } from "@/lib/types";
 
 type MatchDocumentRow = {
   id: number;
@@ -14,15 +14,20 @@ type MatchDocumentRow = {
   similarity: number;
 };
 
-export async function retrieveDocuments(question: string, topK = 4): Promise<RagDocument[]> {
+export async function retrieveDocuments(
+  question: string,
+  topK = 4,
+  provider: LlmProvider = "nvidia",
+  apiKeys: ApiKeyStore = {}
+): Promise<RagDocument[]> {
   const supabase = createSupabaseAdminClient();
-  const embeddings = createNimEmbeddingsModel();
+  const embeddings = createEmbeddingsModel(provider, apiKeys);
   const queryEmbedding = await embeddings.embedQuery(question);
 
   const { data, error } = await supabase.rpc("match_documents", {
     query_embedding: queryEmbedding,
     match_count: topK,
-    source_name_filter: null
+    source_name_filter: null,
   });
 
   if (error) {
@@ -38,6 +43,6 @@ export async function retrieveDocuments(question: string, topK = 4): Promise<Rag
     content: row.content,
     metadata: row.metadata ?? {},
     chunkIndex: row.chunk_index,
-    similarity: row.similarity
+    similarity: row.similarity,
   }));
 }

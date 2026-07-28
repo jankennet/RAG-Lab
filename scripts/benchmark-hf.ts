@@ -67,7 +67,7 @@ async function main() {
       continue;
     }
 
-    const prediction = await runRagGraph(question, 4);
+    const prediction = await runRagGraph(question, { topK: 4 });
     const score = tokenF1(prediction.answer, reference);
 
     totalF1 += score;

@@ -1,97 +1,157 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ApiKeyCard } from "../components/ApiKeyCard";
-import { ModelSelector } from "../components/ModelSelector";
-import { dashboardProviders } from "@/lib/dashboard-data";
-import {
-  defaultDashboardPreferences,
-  loadDashboardPreferences,
-  saveDashboardPreferences
-} from "@/lib/dashboard-preferences";
-import type { DashboardPreferences } from "@/lib/dashboard-preferences";
+import { useState } from "react";
+import { useDashboard } from "../components/DashboardProvider";
+import type { LlmProvider } from "@/lib/types";
+import { PROVIDERS } from "@/lib/types";
 
 export default function SettingsPage() {
-  const [preferences, setPreferences] = useState<DashboardPreferences>(defaultDashboardPreferences);
+  const { preferences, setProvider, setModel, setApiKey, validateApiKey } = useDashboard();
+  const [activeTab, setActiveTab] = useState<"models" | "apiKeys">("models");
+  const [validating, setValidating] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    setPreferences(loadDashboardPreferences());
-  }, []);
+  const handleTestKey = async (provider: LlmProvider) => {
+    setValidating((prev) => ({ ...prev, [provider]: true }));
+    await validateApiKey(provider);
+    setValidating((prev) => ({ ...prev, [provider]: false }));
+  };
 
-  const activeProvider = useMemo(
-    () => dashboardProviders.find((provider) => provider.value === preferences.provider) ?? dashboardProviders[0],
-    [preferences.provider]
-  );
-
-  function updatePreferences(nextPreferences: DashboardPreferences) {
-    setPreferences(nextPreferences);
-    saveDashboardPreferences(nextPreferences);
-  }
+  const selectedProvider = PROVIDERS.find((p) => p.value === preferences.provider);
 
   return (
-    <section className="page-stack">
-      <div className="page-head">
-        <div>
-          <p className="eyebrow">Settings</p>
-          <h1 className="page-title">Keys and model control.</h1>
-          <p className="page-lede">User-managed provider keys, provider pick, and Supabase connection live here.</p>
-        </div>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+
+      {/* Tabs */}
+      <div className="flex mb-6">
+        <button
+          onClick={() => setActiveTab("models")}
+          className={`px-4 py-2 text-sm font-medium ${
+            activeTab === "models" ? "text-accent border-b-2 border-accent" : "text-muted hover:text-text"
+          }`}
+        >
+          Models
+        </button>
+        <button
+          onClick={() => setActiveTab("apiKeys")}
+          className={`ml-4 px-4 py-2 text-sm font-medium ${
+            activeTab === "apiKeys" ? "text-accent border-b-2 border-accent" : "text-muted hover:text-text"
+          }`}
+        >
+          API Keys
+        </button>
       </div>
 
-      <div className="settings-grid">
-        <div className="panel-surface stack-panel">
-          <ModelSelector
-            provider={preferences.provider}
-            model={preferences.model}
-            providers={dashboardProviders}
-            onChange={(provider, model) => updatePreferences({ ...preferences, provider, model })}
-          />
-        </div>
+      {/* Models tab */}
+      {activeTab === "models" && (
+        <div className="bg-bg/50 backdrop-blur-sm rounded-xl border border-line p-6">
+          <h2 className="font-semibold mb-4">Model Settings</h2>
+          <p className="text-muted mb-4">
+            Select your preferred provider and model. Changes apply to all new chats.
+          </p>
 
-        <div className="panel-surface stack-panel">
-          <h2>Keys</h2>
-          <p className="muted-copy">Keep keys local in browser storage until backend auth lands.</p>
-          <ApiKeyCard
-            label="NVIDIA NIM"
-            description="Used for chat and embedding endpoints."
-            value={preferences.apiKeys.nvidia?.key ?? ""}
-            onChange={(key) => updatePreferences({ ...preferences, apiKeys: { ...preferences.apiKeys, nvidia: { key, validated: Boolean(key) } } })}
-          />
-          <ApiKeyCard
-            label="OpenAI"
-            description="For alternate models and evaluation flows."
-            value={preferences.apiKeys.openai?.key ?? ""}
-            onChange={(key) => updatePreferences({ ...preferences, apiKeys: { ...preferences.apiKeys, openai: { key, validated: Boolean(key) } } })}
-          />
-          <ApiKeyCard
-            label="Anthropic"
-            description="For Claude-style chat and future fallback path."
-            value={preferences.apiKeys.anthropic?.key ?? ""}
-            onChange={(key) => updatePreferences({ ...preferences, apiKeys: { ...preferences.apiKeys, anthropic: { key, validated: Boolean(key) } } })}
-          />
-        </div>
+          {/* Provider selector */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium mb-2">Active Provider</label>
+            <select
+              value={preferences.provider}
+              onChange={(e) => setProvider(e.target.value as LlmProvider)}
+              className="w-full px-3 py-2 bg-bg/60 border-line rounded-md text-sm focus:outline-none focus:border-accent"
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="panel-surface stack-panel">
-          <h2>Storage</h2>
-          <ApiKeyCard
-            label="Supabase URL"
-            description="Vector DB endpoint and auth domain."
-            value={preferences.apiKeys.supabaseUrl ?? ""}
-            onChange={(value) => updatePreferences({ ...preferences, apiKeys: { ...preferences.apiKeys, supabaseUrl: value } })}
-          />
-          <ApiKeyCard
-            label="Supabase key"
-            description="Service role or auth key, depending on deployment.",
-            value={preferences.apiKeys.supabaseKey ?? ""}
-            onChange={(value) => updatePreferences({ ...preferences, apiKeys: { ...preferences.apiKeys, supabaseKey: value } })}
-          />
+          {/* Model selector for active provider */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium mb-2">Default Model ({selectedProvider?.label ?? ""})</label>
+            <select
+              value={preferences.model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full px-3 py-2 bg-bg/60 border-line rounded-md text-sm focus:outline-none focus:border-accent"
+            >
+              {(selectedProvider?.models ?? []).map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <div className="status-list compact">
-            <div><span>Active provider</span><strong>{activeProvider.label}</strong></div>
-            <div><span>Default model</span><strong>{activeProvider.defaultModel}</strong></div>
+          {/* All providers reference */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-muted">All Providers</h3>
+            {PROVIDERS.map((p) => (
+              <div key={p.value} className="flex items-center justify-between py-2 border-b border-line/50">
+                <div>
+                  <span className="text-sm font-medium">{p.label}</span>
+                  <p className="text-xs text-muted">Default: {p.defaultModel}</p>
+                </div>
+                <span className="text-xs text-muted">{p.models.length} models</span>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
-    </section>
+      )}
+
+      {/* API Keys tab */}
+      {activeTab === "apiKeys" && (
+        <div className="bg-bg/50 backdrop-blur-sm rounded-xl border border-line p-6">
+          <h2 className="font-semibold mb-4">API Keys</h2>
+          <p className="text-muted mb-4">
+            Add your API keys for each provider. Keys are stored in your browser's local storage.
+          </p>
+          <div className="space-y-6">
+            {(["nvidia", "openai", "anthropic"] as LlmProvider[]).map((provider) => {
+              const entry = preferences.apiKeys[provider];
+              const isKeyValidated = entry?.validated ?? false;
+              const isKeyEmpty = !entry?.key;
+
+              return (
+                <div key={provider} className="border-b border-line/50 pb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">
+                      {provider === "nvidia" ? "NVIDIA NIM" : provider === "openai" ? "OpenAI" : "Anthropic"}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 text-xs rounded-full ${
+                        isKeyValidated
+                          ? "bg-green-500/20 text-green-400"
+                          : isKeyEmpty
+                            ? "bg-red-500/20 text-red-400"
+                            : "bg-yellow-500/20 text-yellow-400"
+                      }`}
+                    >
+                      {isKeyValidated ? "Valid" : isKeyEmpty ? "Not set" : "Untested"}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-xs text-muted mb-1">API Key</label>
+                    <input
+                      type="password"
+                      value={entry?.key ?? ""}
+                      onChange={(e) => setApiKey(provider, e.target.value)}
+                      className="w-full px-3 py-2 bg-bg/60 border-line rounded-md text-sm focus:outline-none focus:border-accent"
+                      placeholder={`Enter your ${provider} API key`}
+                    />
+                    <button
+                      onClick={() => handleTestKey(provider)}
+                      disabled={!entry?.key || validating[provider]}
+                      className="w-full px-3 py-2 bg-accent/20 hover:bg-accent/30 text-sm rounded-md transition-colors disabled:opacity-50"
+                    >
+                      {validating[provider] ? "Testing..." : "Test Key"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
