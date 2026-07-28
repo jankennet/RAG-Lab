@@ -1,11 +1,8 @@
+"use client";
+
 import type { ReactNode } from "react";
 import Sidebar from "./components/Sidebar";
 import DashboardProvider from "./components/DashboardProvider";
-
-export const metadata = {
-  title: "Agentic RAG",
-  description: "Free RAG Platform with NVIDIA NIM",
-};
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (

@@ -8,6 +8,9 @@ import type { ApiKeyStore, LlmProvider, RagDocument } from "@/shared/types";
 type RagState = {
   question: string;
   topK: number;
+  temperature: number;
+  topP: number;
+  maxTokens: number;
   documents: RagDocument[];
   answer: string;
   provider: LlmProvider;
@@ -18,6 +21,9 @@ type RagState = {
 const RagStateAnnotation = Annotation.Root({
   question: Annotation<string>(),
   topK: Annotation<number>(),
+  temperature: Annotation<number>(),
+  topP: Annotation<number>(),
+  maxTokens: Annotation<number>(),
   documents: Annotation<RagDocument[]>(),
   answer: Annotation<string>(),
   provider: Annotation<LlmProvider>(),
@@ -39,6 +45,9 @@ async function answerQuestion(state: RagState) {
   const response = await callLlm({
     provider: state.provider,
     model: state.model,
+    temperature: state.temperature,
+    topP: state.topP,
+    maxTokens: state.maxTokens,
     messages: [
       { role: "system", content: "You are the assistant for Multi-Source Agentic RAG Platform. Answer only from supplied context when possible. If context misses answer, say what is missing. Cite source numbers inline like [1], [2]. Keep answer concise and specific." },
       { role: "user", content: `Question:\n${state.question}\n\nContext:\n${context}` },
@@ -50,10 +59,21 @@ async function answerQuestion(state: RagState) {
 
 export async function runRagGraph(
   question: string,
-  options: { topK?: number; provider?: LlmProvider; model?: string; apiKeys?: ApiKeyStore } = {}
+  options: {
+    topK?: number;
+    temperature?: number;
+    topP?: number;
+    maxTokens?: number;
+    provider?: LlmProvider;
+    model?: string;
+    apiKeys?: ApiKeyStore;
+  } = {}
 ) {
   const {
     topK = 4,
+    temperature = 0.2,
+    topP = 0.9,
+    maxTokens = 4096,
     provider = "nvidia",
     model = "meta/llama-3.1-70b-instruct",
     apiKeys = {}
@@ -72,6 +92,9 @@ export async function runRagGraph(
   const result = await graph.invoke({
     question,
     topK,
+    temperature,
+    topP,
+    maxTokens,
     provider,
     model,
     apiKeys

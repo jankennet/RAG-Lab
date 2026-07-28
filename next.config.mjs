@@ -1,3 +1,5 @@
+const isDev = process.env.NODE_ENV === "development";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -34,7 +36,7 @@ const nextConfig = {
             key: "Content-Security-Policy",
             value:
               "default-src 'self'; " +
-              "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; " +
+              `script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'${isDev ? " 'unsafe-inline'" : ""}; ` +
               "style-src 'self' 'unsafe-inline'; " +
               "img-src 'self' data: https:; " +
               "font-src 'self' data:; " +

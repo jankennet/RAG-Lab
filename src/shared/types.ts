@@ -42,9 +42,26 @@ export type ChatThread = {
   updatedAt: number;
 };
 
+export type InferenceParams = {
+  temperature: number;
+  topP: number;
+  topK: number;
+  maxTokens: number;
+};
+
+export const DEFAULT_INFERENCE_PARAMS: InferenceParams = {
+  temperature: 0.2,
+  topP: 0.9,
+  topK: 4,
+  maxTokens: 4096,
+};
+
 export type ChatRequest = {
   question: string;
   topK?: number;
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
   model?: string;
   provider?: LlmProvider;
   apiKeys: ApiKeyStore;
@@ -79,6 +96,8 @@ export type ProviderConfig = {
   models: string[];
   defaultModel: string;
   baseUrl?: string;
+  modelsEndpoint?: string;
+  fetchable: boolean;
 };
 
 export const PROVIDERS: ProviderConfig[] = [
@@ -94,6 +113,8 @@ export const PROVIDERS: ProviderConfig[] = [
     ],
     defaultModel: "meta/llama-3.1-70b-instruct",
     baseUrl: "https://integrate.api.nvidia.com/v1",
+    modelsEndpoint: "https://integrate.api.nvidia.com/v1/models",
+    fetchable: true,
   },
   {
     label: "OpenAI",
@@ -108,6 +129,8 @@ export const PROVIDERS: ProviderConfig[] = [
       "o3-mini",
     ],
     defaultModel: "gpt-4o-mini",
+    modelsEndpoint: "https://api.openai.com/v1/models",
+    fetchable: true,
   },
   {
     label: "Anthropic",
@@ -122,6 +145,7 @@ export const PROVIDERS: ProviderConfig[] = [
       "claude-3-haiku-latest",
     ],
     defaultModel: "claude-sonnet-4-20250514",
+    fetchable: false,
   },
 ];
 

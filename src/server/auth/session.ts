@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
 import type { ApiKeyStore } from "@/shared/types";
 
-const COOKIE_NAME = "__Host-rag-session";
+const COOKIE_NAME = "rag-session";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 

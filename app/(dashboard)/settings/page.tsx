@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDashboard } from "../components/DashboardProvider";
 import type { LlmProvider } from "@/shared/types";
 import { PROVIDERS } from "@/shared/types";
@@ -14,8 +14,13 @@ const PROVIDER_LABELS: Record<LlmProvider, string> = {
 export default function SettingsPage() {
   const {
     preferences,
+    apiKeys,
     setProvider,
     setModel,
+    setTopK,
+    setTemperature,
+    setTopP,
+    setMaxTokens,
     submitApiKey,
     apiKeyStatus,
   } = useDashboard();
@@ -23,8 +28,53 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<"models" | "apiKeys">("models");
   const [submitting, setSubmitting] = useState<Record<string, boolean>>({});
   const [localKeys, setLocalKeys] = useState<Record<string, string>>({});
+  const [dynamicModels, setDynamicModels] = useState<string[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [isCustomModel, setIsCustomModel] = useState(false);
 
   const selectedProvider = PROVIDERS.find((p) => p.value === preferences.provider);
+
+  // Fetch models from API when provider changes
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchModels() {
+      setIsFetchingModels(true);
+      try {
+        const response = await fetch(
+          `/api/models?provider=${encodeURIComponent(preferences.provider)}`
+        );
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!cancelled) setDynamicModels(data.models ?? []);
+      } catch {
+        // Fall back to hardcoded
+      } finally {
+        if (!cancelled) setIsFetchingModels(false);
+      }
+    }
+
+    const pConfig = PROVIDERS.find((p) => p.value === preferences.provider);
+    if (pConfig?.fetchable) {
+      fetchModels();
+    } else {
+      setDynamicModels([]);
+      setIsFetchingModels(false);
+    }
+
+    return () => { cancelled = true; };
+  }, [preferences.provider]);
+
+  // Merge hardcoded with fetched
+  const mergedModels = (() => {
+    const base = new Set(selectedProvider?.models ?? []);
+    for (const m of dynamicModels) base.add(m);
+    const list = Array.from(base).sort();
+    if (preferences.model && !list.includes(preferences.model)) {
+      list.push(preferences.model);
+    }
+    return list;
+  })();
 
   const handleSubmitKey = async (provider: LlmProvider) => {
     const key = localKeys[provider];
@@ -82,20 +132,127 @@ export default function SettingsPage() {
               </div>
 
               <div className="mb-6">
-                <label className="block text-sm font-medium mb-2 text-muted">
-                  Model ({selectedProvider?.label ?? ""})
-                </label>
-                <select
-                  value={preferences.model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
-                >
-                  {(selectedProvider?.models ?? []).map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-muted">
+                    Model ({selectedProvider?.label ?? ""})
+                  </label>
+                  {isFetchingModels && (
+                    <span className="text-[10px] text-muted animate-pulse">Fetching models...</span>
+                  )}
+                </div>
+                {isCustomModel ? (
+                  <input
+                    type="text"
+                    value={preferences.model}
+                    onChange={(e) => setModel(e.target.value)}
+                    onBlur={() => { if (!preferences.model.trim()) setIsCustomModel(false); }}
+                    className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                    placeholder="Enter model ID..."
+                    autoFocus
+                  />
+                ) : (
+                  <select
+                    value={preferences.model}
+                    onChange={(e) => {
+                      if (e.target.value === "__custom__") {
+                        setIsCustomModel(true);
+                      } else {
+                        setModel(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                  >
+                    {mergedModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                    <option value="__custom__" className="text-accent">
+                      ✏ Custom model...
                     </option>
-                  ))}
-                </select>
+                  </select>
+                )}
+              </div>
+            </div>
+
+            {/* Inference Parameters */}
+            <div className="bg-bg-alt rounded-2xl border border-line p-6">
+              <h3 className="font-semibold mb-2">Inference Parameters</h3>
+              <p className="text-sm text-muted mb-6">
+                Control model output behavior. Higher temperature = more creative, lower = more deterministic.
+              </p>
+
+              <div className="space-y-5">
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-sm font-medium text-muted">Top K</label>
+                    <span className="text-xs text-muted">{preferences.topK ?? 4}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={20}
+                    step={1}
+                    value={preferences.topK ?? 4}
+                    onChange={(e) => setTopK(Number(e.target.value))}
+                    className="w-full h-1.5 bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
+                  <p className="text-xs text-muted mt-1">Number of documents retrieved for context</p>
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-sm font-medium text-muted">Temperature</label>
+                    <span className="text-xs text-muted">{(preferences.temperature ?? 0.2).toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={preferences.temperature ?? 0.2}
+                    onChange={(e) => setTemperature(Number(e.target.value))}
+                    className="w-full h-1.5 bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
+                  <p className="flex justify-between text-xs text-muted mt-1">
+                    <span>0.0 (deterministic)</span>
+                    <span>2.0 (creative)</span>
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-sm font-medium text-muted">Top P</label>
+                    <span className="text-xs text-muted">{(preferences.topP ?? 0.9).toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={preferences.topP ?? 0.9}
+                    onChange={(e) => setTopP(Number(e.target.value))}
+                    className="w-full h-1.5 bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
+                  <p className="text-xs text-muted mt-1">Nucleus sampling: cumulative probability threshold</p>
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-sm font-medium text-muted">Max Tokens</label>
+                    <span className="text-xs text-muted">{preferences.maxTokens ?? 4096}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={256}
+                    max={32768}
+                    step={256}
+                    value={preferences.maxTokens ?? 4096}
+                    onChange={(e) => setMaxTokens(Number(e.target.value))}
+                    className="w-full h-1.5 bg-[#03111a] rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
+                  <p className="text-xs text-muted mt-1">Maximum response length in tokens</p>
+                </div>
               </div>
             </div>
 
@@ -133,7 +290,7 @@ export default function SettingsPage() {
               {(["nvidia", "openai", "anthropic"] as LlmProvider[]).map((provider) => {
                 const status = apiKeyStatus[provider];
                 const isKeyValidated = status?.validated ?? false;
-                const isKeySet = status?.hasKey ?? false;
+                const isKeySet = (apiKeys[provider]?.length ?? 0) > 0;
                 const isSubmitting = submitting[provider] ?? false;
 
                 return (
@@ -145,11 +302,11 @@ export default function SettingsPage() {
                           isKeyValidated
                             ? "bg-success/20 text-success"
                             : isKeySet
-                              ? "bg-warning/20 text-warning"
+                              ? "bg-accent/20 text-accent"
                               : "bg-danger/20 text-danger"
                         }`}
                       >
-                        {isKeyValidated ? "Valid" : isKeySet ? "Untested" : "Not set"}
+                        {isKeyValidated ? "Valid" : isKeySet ? "Key Configured" : "Not set"}
                       </span>
                     </div>
                     <input
@@ -157,7 +314,11 @@ export default function SettingsPage() {
                       value={localKeys[provider] ?? ""}
                       onChange={(e) => setLocalKeys((prev) => ({ ...prev, [provider]: e.target.value }))}
                       className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors mb-2"
-                      placeholder={`Enter your ${PROVIDER_LABELS[provider]} API key`}
+                      placeholder={
+                        isKeySet
+                          ? "Key Configured — enter a new key"
+                          : `Enter your ${PROVIDER_LABELS[provider]} API key`
+                      }
                       autoComplete="off"
                     />
                     <button

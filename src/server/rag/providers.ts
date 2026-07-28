@@ -8,9 +8,12 @@ interface CallLlmParams {
   model: string;
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
   apiKeys: ApiKeyStore;
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
 }
 
-export async function callLlm({ provider, model, messages, apiKeys }: CallLlmParams): Promise<string> {
+export async function callLlm({ provider, model, messages, apiKeys, temperature = 0.2, topP = 0.9, maxTokens = 4096 }: CallLlmParams): Promise<string> {
   // Get the API key for the provider
   const apiKeyEntry = apiKeys[provider];
   if (!apiKeyEntry || !apiKeyEntry.key) {
@@ -28,21 +31,27 @@ export async function callLlm({ provider, model, messages, apiKeys }: CallLlmPar
         configuration: {
           baseURL: "https://integrate.api.nvidia.com/v1",
         },
-        temperature: 0.2,
+        temperature,
+        topP,
+        maxTokens,
       });
       break;
     case "openai":
       chatModel = new ChatOpenAI({
         model,
         apiKey: apiKeyEntry.key,
-        temperature: 0.2,
+        temperature,
+        topP,
+        maxTokens,
       });
       break;
     case "anthropic":
       chatModel = new ChatAnthropic({
         model,
         apiKey: apiKeyEntry.key,
-        temperature: 0.2,
+        temperature,
+        topP,
+        maxTokens,
       });
       break;
     default:

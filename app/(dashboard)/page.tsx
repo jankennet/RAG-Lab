@@ -5,11 +5,21 @@ import { useDashboard } from "./components/DashboardProvider";
 import ChatMessage from "./components/ChatMessage";
 import ChatInput from "./components/ChatInput";
 import ModelSelector from "./components/ModelSelector";
+import ApiKeyMissingToast from "./components/ApiKeyMissingToast";
 import { v4 as uuidv4 } from "uuid";
 import type { RagDocument, LlmProvider } from "@/shared/types";
 
 export default function ChatPage() {
-  const { preferences, setProvider, setModel } = useDashboard();
+  const {
+    preferences,
+    apiKeys,
+    setProvider,
+    setModel,
+    setTopK,
+    setTemperature,
+    setTopP,
+    setMaxTokens,
+  } = useDashboard();
   const [messages, setMessages] = useState<
     Array<{
       id: string;
@@ -21,6 +31,8 @@ export default function ChatPage() {
   >([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showInference, setShowInference] = useState(false);
+  const [missingKeyProvider, setMissingKeyProvider] = useState<LlmProvider | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Welcome message on first load
@@ -47,6 +59,12 @@ export default function ChatPage() {
       e?.preventDefault();
       if (!input.trim() || isLoading) return;
 
+      const key = apiKeys[preferences.provider];
+      if (!key) {
+        setMissingKeyProvider(preferences.provider);
+        return;
+      }
+
       const userMessage = {
         id: uuidv4(),
         role: "user" as const,
@@ -70,9 +88,13 @@ export default function ChatPage() {
           body: JSON.stringify({
             question: userMessage.content,
             topK: preferences.topK ?? 4,
+            temperature: preferences.temperature ?? 0.2,
+            topP: preferences.topP ?? 0.9,
+            maxTokens: preferences.maxTokens ?? 4096,
             provider: preferences.provider,
             model: preferences.model,
             datasetId: preferences.activeDatasetId,
+            apiKey: apiKeys[preferences.provider] ?? undefined,
           }),
         });
 
@@ -107,7 +129,7 @@ export default function ChatPage() {
         setIsLoading(false);
       }
     },
-    [input, isLoading, preferences]
+    [input, isLoading, preferences, apiKeys]
   );
 
   const handleProviderChange = useCallback(
@@ -131,19 +153,103 @@ export default function ChatPage() {
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
+      {/* Missing API key toast */}
+      {missingKeyProvider && (
+        <ApiKeyMissingToast
+          provider={missingKeyProvider}
+          onDismiss={() => setMissingKeyProvider(null)}
+        />
+      )}
+
       {/* Top bar */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-line flex-shrink-0">
+      <header className="flex items-center justify-between px-6 py-3 border-b border-line flex-shrink-0 gap-3">
         <ModelSelector
           provider={preferences.provider}
           model={preferences.model}
           onProviderChange={handleProviderChange}
           onModelChange={handleModelChange}
         />
-        <div className="text-xs text-muted">
-          Top K: {preferences.topK ?? 4}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">
+            Top K: {preferences.topK ?? 4}
+          </span>
+          <button
+            onClick={() => setShowInference((v) => !v)}
+            className={`text-xs font-medium px-3 py-1.5 rounded-xl border transition-colors ${
+              showInference
+                ? "bg-accent/10 border-accent/30 text-accent"
+                : "bg-panel border-line text-muted hover:text-text"
+            }`}
+          >
+            ⚙ Inference
+          </button>
         </div>
       </header>
+
+      {/* Inference controls */}
+      {showInference && (
+        <div className="px-6 py-3 border-b border-line flex-shrink-0 bg-bg-alt/50">
+          <div className="flex items-center gap-6 flex-wrap">
+            <label className="flex flex-col gap-1 min-w-[120px]">
+              <span className="text-[10px] text-muted font-medium">
+                Top K: {preferences.topK ?? 4}
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={20}
+                step={1}
+                value={preferences.topK ?? 4}
+                onChange={(e) => setTopK(Number(e.target.value))}
+                className="w-full h-1.5 bg-line rounded-lg appearance-none cursor-pointer accent-accent"
+              />
+            </label>
+            <label className="flex flex-col gap-1 min-w-[120px]">
+              <span className="text-[10px] text-muted font-medium">
+                Temp: {(preferences.temperature ?? 0.2).toFixed(2)}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.05}
+                value={preferences.temperature ?? 0.2}
+                onChange={(e) => setTemperature(Number(e.target.value))}
+                className="w-full h-1.5 bg-line rounded-lg appearance-none cursor-pointer accent-accent"
+              />
+            </label>
+            <label className="flex flex-col gap-1 min-w-[120px]">
+              <span className="text-[10px] text-muted font-medium">
+                Top P: {(preferences.topP ?? 0.9).toFixed(2)}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={preferences.topP ?? 0.9}
+                onChange={(e) => setTopP(Number(e.target.value))}
+                className="w-full h-1.5 bg-line rounded-lg appearance-none cursor-pointer accent-accent"
+              />
+            </label>
+            <label className="flex flex-col gap-1 min-w-[120px]">
+              <span className="text-[10px] text-muted font-medium">
+                Max Tokens: {preferences.maxTokens ?? 4096}
+              </span>
+              <input
+                type="range"
+                min={256}
+                max={32768}
+                step={256}
+                value={preferences.maxTokens ?? 4096}
+                onChange={(e) => setMaxTokens(Number(e.target.value))}
+                className="w-full h-1.5 bg-line rounded-lg appearance-none cursor-pointer accent-accent"
+              />
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto">

@@ -9,10 +9,14 @@ export const runtime = "nodejs";
 
 const chatRequestSchema = z.object({
   question: z.string().trim().min(1).max(8000),
-  topK: z.coerce.number().int().min(1).max(8).default(4),
+  topK: z.coerce.number().int().min(1).max(20).default(4),
+  temperature: z.coerce.number().min(0).max(2).default(0.2),
+  topP: z.coerce.number().min(0).max(1).default(0.9),
+  maxTokens: z.coerce.number().int().min(1).max(32768).default(4096),
   provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
   model: z.string().min(1).max(256).default("meta/llama-3.1-70b-instruct"),
   datasetId: z.string().max(256).optional(),
+  apiKey: z.string().max(512).optional(),
 });
 
 export async function POST(request: Request) {
@@ -22,8 +26,13 @@ export async function POST(request: Request) {
 
     const payload = chatRequestSchema.parse(await request.json());
 
-    // Read API keys from encrypted httpOnly cookie — never from the request body
+    // Read API keys from encrypted httpOnly cookie first
     const apiKeys = await getSessionApiKeys();
+
+    // Fallback: use apiKey from request body if cookie has none for this provider
+    if (!apiKeys[payload.provider]?.key && payload.apiKey) {
+      apiKeys[payload.provider] = { key: payload.apiKey, validated: false };
+    }
 
     // Ensure the requested provider has a key
     const entry = apiKeys[payload.provider];
@@ -36,6 +45,9 @@ export async function POST(request: Request) {
 
     const response = await runRagGraph(payload.question, {
       topK: payload.topK,
+      temperature: payload.temperature,
+      topP: payload.topP,
+      maxTokens: payload.maxTokens,
       provider: payload.provider as LlmProvider,
       model: payload.model,
       apiKeys,

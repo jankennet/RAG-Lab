@@ -43,7 +43,7 @@ async function testOpenAIKey(key: string): Promise<boolean> {
 async function testAnthropicKey(key: string): Promise<boolean> {
   try {
     const model = new ChatAnthropic({
-      model: "claude-haiku-4-20251001",
+      model: "claude-sonnet-4-20250514",
       apiKey: key,
       maxTokens: 1,
     });

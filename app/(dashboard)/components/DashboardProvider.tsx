@@ -6,6 +6,8 @@ import { PROVIDERS } from "@/shared/types";
 import {
   loadDashboardPreferences,
   saveDashboardPreferences,
+  loadApiKeys,
+  saveApiKey,
   defaultDashboardPreferences,
   type DashboardPreferences,
 } from "../lib/preferences";
@@ -15,9 +17,13 @@ type ApiKeyStatus = Record<string, { validated: boolean; hasKey: boolean }>;
 type DashboardContextValue = {
   preferences: DashboardPreferences;
   apiKeyStatus: ApiKeyStatus;
+  apiKeys: Partial<Record<LlmProvider, string>>;
   setProvider: (provider: LlmProvider) => void;
   setModel: (model: string) => void;
   setTopK: (topK: number) => void;
+  setTemperature: (temperature: number) => void;
+  setTopP: (topP: number) => void;
+  setMaxTokens: (maxTokens: number) => void;
   submitApiKey: (provider: LlmProvider, key: string) => Promise<boolean>;
   fetchApiKeyStatus: () => Promise<void>;
   setActiveDataset: (datasetId: string) => void;
@@ -45,12 +51,14 @@ function apiHeaders(): Record<string, string> {
 export default function DashboardProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<DashboardPreferences>(defaultDashboardPreferences);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus>({});
+  const [apiKeys, setApiKeys] = useState<Partial<Record<LlmProvider, string>>>({});
   const [mounted, setMounted] = useState(false);
 
-  // On mount, load preferences from localStorage (NO keys)
+  // On mount, load preferences and api keys from localStorage
   useEffect(() => {
     if (typeof window !== "undefined") {
       setPreferences(loadDashboardPreferences());
+      setApiKeys(loadApiKeys());
       setMounted(true);
     }
   }, []);
@@ -72,6 +80,7 @@ export default function DashboardProvider({ children }: { children: ReactNode })
   const hydrate = useCallback(() => {
     if (typeof window !== "undefined") {
       setPreferences(loadDashboardPreferences());
+      setApiKeys(loadApiKeys());
       fetchApiKeyStatus();
     }
   }, []);
@@ -91,7 +100,31 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     setPreferences((prev) => ({ ...prev, topK }));
   }, []);
 
+  const setTemperature = useCallback((temperature: number) => {
+    setPreferences((prev) => ({ ...prev, temperature }));
+  }, []);
+
+  const setTopP = useCallback((topP: number) => {
+    setPreferences((prev) => ({ ...prev, topP }));
+  }, []);
+
+  const setMaxTokens = useCallback((maxTokens: number) => {
+    setPreferences((prev) => ({ ...prev, maxTokens }));
+  }, []);
+
   const fetchApiKeyStatus = useCallback(async (): Promise<void> => {
+    // Derive status from localStorage keys
+    const local = loadApiKeys();
+    const status: ApiKeyStatus = {};
+    for (const p of ["nvidia", "openai", "anthropic"] as LlmProvider[]) {
+      status[p] = {
+        hasKey: (local[p]?.length ?? 0) > 0,
+        validated: false, // server-side validation only
+      };
+    }
+    setApiKeyStatus(status);
+
+    // Also try server session for validation status
     try {
       const response = await fetch("/api/session", {
         method: "GET",
@@ -99,15 +132,34 @@ export default function DashboardProvider({ children }: { children: ReactNode })
       });
       if (response.ok) {
         const data = await response.json();
-        setApiKeyStatus(data.status ?? {});
+        // Merge server validation state into our status
+        setApiKeyStatus((prev) => {
+          const next = { ...prev };
+          if (data?.status) {
+            for (const p of Object.keys(data.status)) {
+              next[p] = { ...next[p], ...data.status[p] };
+            }
+          }
+          return next;
+        });
       }
     } catch {
-      // Session not available — ignore
+      // Session not available — ignore, local status is enough
     }
   }, []);
 
-  /** Submit an API key to the server. It is encrypted and stored in an httpOnly cookie. */
+  /** Submit an API key. Saved to localStorage immediately. Also sent to server for cookie session. */
   const submitApiKey = useCallback(async (provider: LlmProvider, key: string): Promise<boolean> => {
+    // Save locally first — this always works
+    saveApiKey(provider, key);
+    setApiKeys(loadApiKeys());
+    setApiKeyStatus((prev) => ({
+      ...prev,
+      [provider]: { hasKey: true, validated: false },
+    }));
+
+    // Also POST to server for validation + session cookie
+    let valid = false;
     try {
       const response = await fetch("/api/session", {
         method: "POST",
@@ -115,14 +167,19 @@ export default function DashboardProvider({ children }: { children: ReactNode })
         body: JSON.stringify({ provider, key }),
       });
       const data = await response.json();
-      const valid = response.ok && data.valid === true;
-      // Refresh status
-      await fetchApiKeyStatus();
-      return valid;
+      valid = response.ok && data.valid === true;
+      if (valid) {
+        setApiKeyStatus((prev) => ({
+          ...prev,
+          [provider]: { hasKey: true, validated: true },
+        }));
+      }
     } catch {
-      return false;
+      // Server unreachable — key still stored locally, usable
     }
-  }, [fetchApiKeyStatus]);
+
+    return valid;
+  }, []);
 
   const setActiveDataset = useCallback((datasetId: string) => {
     setPreferences((prev) => ({ ...prev, activeDatasetId: datasetId }));
@@ -133,9 +190,13 @@ export default function DashboardProvider({ children }: { children: ReactNode })
       value={{
         preferences,
         apiKeyStatus,
+        apiKeys,
         setProvider,
         setModel,
         setTopK,
+        setTemperature,
+        setTopP,
+        setMaxTokens,
         submitApiKey,
         fetchApiKeyStatus,
         setActiveDataset,
