@@ -6,6 +6,7 @@ import ChatMessage from "./components/ChatMessage";
 import ChatInput from "./components/ChatInput";
 import ModelSelector from "./components/ModelSelector";
 import ApiKeyMissingToast from "./components/ApiKeyMissingToast";
+import { searchDocuments } from "@/client/opfs";
 import { v4 as uuidv4 } from "uuid";
 import type { RagDocument, LlmProvider } from "@/shared/types";
 
@@ -77,6 +78,10 @@ export default function ChatPage() {
       setIsLoading(true);
 
       try {
+        // Keyword search in OPFS for relevant documents
+        const topK = preferences.topK ?? 4;
+        const docs = await searchDocuments(preferences.activeDatasetId || null, userMessage.content, topK);
+
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: {
@@ -87,19 +92,19 @@ export default function ChatPage() {
           },
           body: JSON.stringify({
             question: userMessage.content,
-            topK: preferences.topK ?? 4,
             temperature: preferences.temperature ?? 0.2,
             topP: preferences.topP ?? 0.9,
             maxTokens: preferences.maxTokens ?? 4096,
             provider: preferences.provider,
             model: preferences.model,
-            datasetId: preferences.activeDatasetId,
             apiKey: apiKeys[preferences.provider] ?? undefined,
+            documents: docs,
           }),
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          throw new Error(data.error ?? `HTTP ${response.status}`);
         }
 
         const data = await response.json();

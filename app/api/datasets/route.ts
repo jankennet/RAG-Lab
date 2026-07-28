@@ -1,97 +1,126 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createSupabaseReadClient, createSupabaseAdminClient } from "@/server/db/supabase";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
+import { fetchHuggingFaceDatasetRows } from "@/server/datasets/hf-datasets";
 
 export const runtime = "nodejs";
 
 const createDatasetSchema = z.object({
   name: z.string().min(1).max(256),
-  source: z.enum(["huggingface", "upload", "url"]),
-  sourceUrl: z.string().url().max(2048).optional(),
+  source: z.enum(["huggingface", "url"]),
+  sourceUrl: z.string().max(2048).optional(),
   datasetName: z.string().max(512).optional(),
   datasetConfig: z.string().max(128).optional(),
   datasetSplit: z.string().max(128).optional(),
-  maxRows: z.coerce.number().int().positive().max(100000).default(100),
+  maxRows: z.coerce.number().int().positive().max(10000).default(100),
 });
 
-export async function GET(request: Request) {
-  try {
-    const guard = applyApiGuard(request, RateLimits.datasets);
-    if (guard) return guard;
-
-    const supabase = createSupabaseReadClient();
-    const { data, error } = await supabase
-      .from("datasets")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("[datasets] GET db error:", error.message);
-      return serverError();
-    }
-
-    return NextResponse.json({
-      datasets: (data ?? []).map((d: Record<string, unknown>) => ({
-        id: d.id,
-        name: d.name,
-        source: d.source,
-        sourceUrl: d.source_url ?? null,
-        rowCount: d.row_count ?? 0,
-        status: d.status ?? "ready",
-        createdAt: d.created_at ? new Date(d.created_at as string).getTime() : Date.now(),
-      })),
-    });
-  } catch (error) {
-    console.error("[datasets] GET error:", error instanceof Error ? error.message : error);
-    return serverError();
-  }
-}
-
+/**
+ * POST: Fetch from HuggingFace or URL, parse into chunks, return to client.
+ * Client stores in OPFS — no server DB.
+ */
 export async function POST(request: Request) {
   try {
     const guard = applyApiGuard(request, RateLimits.datasets);
     if (guard) return guard;
 
     const body = createDatasetSchema.parse(await request.json());
-    const supabase = createSupabaseAdminClient();
 
-    const { data, error } = await supabase
-      .from("datasets")
-      .insert({
-        name: body.name,
-        source: body.source,
-        source_url: body.sourceUrl ?? null,
-        row_count: 0,
-        status: "loading",
-        metadata: {
-          dataset_name: body.datasetName ?? null,
-          dataset_config: body.datasetConfig ?? null,
-          dataset_split: body.datasetSplit ?? null,
-          max_rows: body.maxRows ?? 100,
-        },
-      })
-      .select()
-      .single();
+    if (body.source === "huggingface") {
+      if (!body.datasetName) {
+        return NextResponse.json({ error: "datasetName is required for HuggingFace" }, { status: 400 });
+      }
 
-    if (error) {
-      console.error("[datasets] POST db error:", error.message);
-      return serverError();
+      const rows = await fetchHuggingFaceDatasetRows({
+        datasetName: body.datasetName,
+        datasetConfig: body.datasetConfig ?? "default",
+        split: body.datasetSplit ?? "train",
+        limit: body.maxRows,
+      });
+
+      const chunks = rows.flatMap((row, i) => {
+        const title = String(row.title ?? row.id ?? `row-${i}`);
+        const content = String(row.text ?? row.content ?? row.documents ?? JSON.stringify(row));
+        const metadata: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(row)) {
+          if (k !== "title" && k !== "text" && k !== "content" && k !== "documents") {
+            metadata[k] = v;
+          }
+        }
+
+        // Simple chunking server-side
+        const text = content.replace(/\s+/g, " ").trim();
+        const chunkSize = 1000;
+        const result: Array<Record<string, unknown>> = [];
+        let start = 0;
+        let chunkIdx = 0;
+        while (start < text.length) {
+          const end = Math.min(text.length, start + chunkSize);
+          result.push({
+            sourceKey: `${body.name}:row:${i}:chunk:${chunkIdx}`,
+            sourceName: body.name,
+            sourceUrl: body.sourceUrl ?? null,
+            title: `${title}`,
+            content: text.slice(start, end).trim(),
+            metadata: { ...metadata, rowIndex: i, chunkIndex: chunkIdx },
+            chunkIndex: chunkIdx,
+          });
+          if (end >= text.length) break;
+          start = Math.max(0, end - 150);
+          chunkIdx++;
+        }
+        return result;
+      });
+
+      return NextResponse.json({ chunks });
     }
 
-    const mapped = data as Record<string, unknown>;
+    if (body.source === "url") {
+      // Fetch URL content
+      if (!body.sourceUrl) {
+        return NextResponse.json({ error: "sourceUrl is required for URL source" }, { status: 400 });
+      }
 
-    return NextResponse.json({
-      dataset: {
-        id: mapped.id,
-        name: mapped.name,
-        source: mapped.source,
-        sourceUrl: mapped.source_url ?? null,
-        rowCount: mapped.row_count ?? 0,
-        status: mapped.status ?? "loading",
-        createdAt: mapped.created_at ? new Date(mapped.created_at as string).getTime() : Date.now(),
-      },
-    });
+      const res = await fetch(body.sourceUrl);
+      if (!res.ok) {
+        return NextResponse.json({ error: `Failed to fetch URL: ${res.status}` }, { status: 502 });
+      }
+
+      const contentType = res.headers.get("content-type") ?? "";
+      let content: string;
+      if (contentType.includes("json")) {
+        const json = await res.json();
+        content = JSON.stringify(json, null, 2);
+      } else {
+        content = await res.text();
+      }
+
+      const text = content.replace(/\s+/g, " ").trim();
+      const chunks: Array<Record<string, unknown>> = [];
+      let start = 0;
+      let chunkIdx = 0;
+      while (start < text.length) {
+        const end = Math.min(text.length, start + 1000);
+        chunks.push({
+          id: chunkIdx,
+          sourceKey: `${body.name}:url:chunk:${chunkIdx}`,
+          sourceName: body.name,
+          sourceUrl: body.sourceUrl,
+          title: `${body.name} (${body.sourceUrl})`,
+          content: text.slice(start, end).trim(),
+          metadata: { source: "url", url: body.sourceUrl, chunkIndex: chunkIdx },
+          chunkIndex: chunkIdx,
+        });
+        if (end >= text.length) break;
+        start = Math.max(0, end - 150);
+        chunkIdx++;
+      }
+
+      return NextResponse.json({ chunks });
+    }
+
+    // Should not reach here (both branches return)
+    return NextResponse.json({ error: "Unknown source" }, { status: 400 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
@@ -101,28 +130,3 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
-  try {
-    const guard = applyApiGuard(request, RateLimits.datasets);
-    if (guard) return guard;
-
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
-    if (!id) {
-      return NextResponse.json({ error: "Missing dataset id" }, { status: 400 });
-    }
-
-    const supabase = createSupabaseAdminClient();
-    const { error } = await supabase.from("datasets").delete().eq("id", id);
-
-    if (error) {
-      console.error("[datasets] DELETE db error:", error.message);
-      return serverError();
-    }
-
-    return NextResponse.json({ deleted: true });
-  } catch (error) {
-    console.error("[datasets] DELETE error:", error instanceof Error ? error.message : error);
-    return serverError();
-  }
-}

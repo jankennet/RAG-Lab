@@ -3,20 +3,30 @@ import { z } from "zod";
 import { formatAnswerSourceList, runRagGraph } from "@/server/rag/graph";
 import { getSessionApiKeys } from "@/server/auth/session";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
-import type { LlmProvider } from "@/shared/types";
+import type { LlmProvider, RagDocument } from "@/shared/types";
 
 export const runtime = "nodejs";
 
+const documentSchema = z.object({
+  id: z.number().optional(),
+  sourceKey: z.string().optional(),
+  sourceName: z.string().optional(),
+  sourceUrl: z.string().nullable().optional(),
+  title: z.string().optional(),
+  content: z.string(),
+  metadata: z.record(z.unknown()).optional(),
+  chunkIndex: z.number().optional(),
+});
+
 const chatRequestSchema = z.object({
   question: z.string().trim().min(1).max(8000),
-  topK: z.coerce.number().int().min(1).max(20).default(4),
   temperature: z.coerce.number().min(0).max(2).default(0.2),
   topP: z.coerce.number().min(0).max(1).default(0.9),
   maxTokens: z.coerce.number().int().min(1).max(32768).default(4096),
   provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
   model: z.string().min(1).max(256).default("meta/llama-3.1-70b-instruct"),
-  datasetId: z.string().max(256).optional(),
   apiKey: z.string().max(512).optional(),
+  documents: z.array(documentSchema).default([]),
 });
 
 export async function POST(request: Request) {
@@ -43,14 +53,26 @@ export async function POST(request: Request) {
       );
     }
 
+    // Map client documents to the format RagDocument expects
+    const documents = payload.documents.map((doc, i) => ({
+      id: doc.id ?? i,
+      sourceKey: doc.sourceKey ?? "",
+      sourceName: doc.sourceName ?? "",
+      sourceUrl: doc.sourceUrl ?? null,
+      title: doc.title ?? `Document ${i + 1}`,
+      content: doc.content,
+      metadata: doc.metadata ?? {},
+      chunkIndex: doc.chunkIndex ?? i,
+    }));
+
     const response = await runRagGraph(payload.question, {
-      topK: payload.topK,
       temperature: payload.temperature,
       topP: payload.topP,
       maxTokens: payload.maxTokens,
       provider: payload.provider as LlmProvider,
       model: payload.model,
       apiKeys,
+      documents,
     });
 
     return NextResponse.json({

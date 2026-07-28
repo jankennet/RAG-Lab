@@ -1,34 +1,54 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import type { Dataset } from "@/shared/types";
+import { useDashboard } from "../components/DashboardProvider";
+import {
+  loadIndex,
+  createDataset,
+  deleteDataset,
+  chunkText,
+  makeDocuments,
+  updateDatasetChunks,
+} from "@/client/opfs";
+import type { OpfsDataset } from "@/client/opfs";
 import DatasetCard from "@/app/(dashboard)/components/DatasetCard";
 
-export default function DatasetsPage() {
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+type SourceType = "huggingface" | "upload" | "url";
 
+export default function DatasetsPage() {
+  const { setActiveDataset, preferences } = useDashboard();
+  const [datasets, setDatasets] = useState<OpfsDataset[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Form state
   const [name, setName] = useState("");
-  const [source, setSource] = useState<"huggingface" | "upload" | "url">("huggingface");
-  const [url, setUrl] = useState("");
+  const [source, setSource] = useState<SourceType>("huggingface");
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
+  // HuggingFace fields
+  const [hfDatasetId, setHfDatasetId] = useState("");
+  const [hfConfig, setHfConfig] = useState("default");
+  const [hfSplit, setHfSplit] = useState("train");
+  const [hfMaxRows, setHfMaxRows] = useState("100");
+
+  // URL field
+  const [sourceUrl, setSourceUrl] = useState("");
+
+  // Upload state — multiple files
+  const [dragOver, setDragOver] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const fetchDatasets = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
-      const res = await fetch("/api/datasets");
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? `Status ${res.status}`);
-      }
-      const data = await res.json();
-      setDatasets(data.datasets ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load datasets");
+      const index = await loadIndex();
+      setDatasets(index);
+    } catch {
+      setDatasets([]);
     } finally {
       setLoading(false);
     }
@@ -38,51 +58,198 @@ export default function DatasetsPage() {
     fetchDatasets();
   }, [fetchDatasets]);
 
+  const resetForm = () => {
+    setName("");
+    setHfDatasetId("");
+    setHfConfig("default");
+    setHfSplit("train");
+    setHfMaxRows("100");
+    setSourceUrl("");
+    setSelectedFiles([]);
+    setAddError(null);
+    setUploadProgress(null);
+  };
+
+  // ── File helpers ──────────────────────────────────────
+
+  const addFiles = (newFiles: FileList | File[]) => {
+    setSelectedFiles((prev) => {
+      const existing = new Set(prev.map((f) => f.name + f.size));
+      const fresh = Array.from(newFiles).filter((f) => !existing.has(f.name + f.size));
+      return [...prev, ...fresh];
+    });
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeFile = (idx: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // ── Drop handlers ───────────────────────────────────────
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (e.dataTransfer.files.length > 0) {
+      addFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleFilePick = () => fileInputRef.current?.click();
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      addFiles(e.target.files);
+    }
+  };
+
+  // ── Handle form submit ──────────────────────────────────
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !url.trim()) return;
+    if (!name.trim()) return;
+
+    if (source === "huggingface" && !hfDatasetId.trim()) {
+      setAddError("Enter a HuggingFace dataset ID");
+      return;
+    }
+    if (source === "url" && !sourceUrl.trim()) {
+      setAddError("Enter a URL");
+      return;
+    }
+    if (source === "upload" && selectedFiles.length === 0) {
+      setAddError("Select at least one file to upload");
+      return;
+    }
 
     setIsAdding(true);
     setAddError(null);
-    try {
-      const res = await fetch("/api/datasets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          source,
-          sourceUrl: source !== "upload" ? url.trim() : undefined,
-          datasetName: source === "huggingface" ? url.trim() : undefined,
-        }),
-      });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+    try {
+      if (source === "upload") {
+        // ── Upload: send all files to server for parsing ──
+        const form = new FormData();
+        form.set("datasetName", name.trim());
+        for (const f of selectedFiles) {
+          form.append("files", f);
+        }
+
+        setUploadProgress(`Uploading ${selectedFiles.length} file(s)...`);
+        const res = await fetch("/api/upload", { method: "POST", body: form });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(typeof data.error === "string" ? data.error : "Upload failed");
+        }
+
+        // Merge all parsed files into one content blob
+        const parsedFiles = (data as { files?: Array<{ filename: string; content: string; metadata: Record<string, unknown> }> }).files ?? [];
+        setUploadProgress(`Parsed ${parsedFiles.length} file(s), chunking...`);
+
+        let allContent = "";
+        const mergedMetadata: Record<string, unknown> = { files: [] as string[] };
+        for (const pf of parsedFiles) {
+          allContent += `\n\n=== ${pf.filename} ===\n\n${pf.content}`;
+          (mergedMetadata.files as string[]).push(pf.filename);
+        }
+
+        const chunks = chunkText(allContent.trim(), 1000, 150);
+        const docs = makeDocuments(name.trim(), null, name.trim(), chunks, mergedMetadata);
+
+        setUploadProgress(`Saving ${chunks.length} chunks...`);
+        const dataset = await createDataset({ name: name.trim(), source: "upload", sourceUrl: null });
+        await updateDatasetChunks(dataset.id, docs);
+        setUploadProgress(`${chunks.length} chunks across ${parsedFiles.length} files`);
+      } else if (source === "huggingface") {
+        setUploadProgress("Fetching from HuggingFace...");
+        const res = await fetch("/api/datasets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            source: "huggingface",
+            datasetName: hfDatasetId.trim(),
+            datasetConfig: hfConfig.trim(),
+            datasetSplit: hfSplit.trim(),
+            maxRows: parseInt(hfMaxRows, 10) || 100,
+            sourceUrl: `https://huggingface.co/datasets/${hfDatasetId.trim()}`,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(typeof data.error === "string" ? data.error : "Failed to fetch dataset");
+        }
+
+        const remoteDocs = (data as { chunks?: Array<Record<string, unknown>> }).chunks ?? [];
+        if (remoteDocs.length > 0) {
+          const dataset = await createDataset({ name: name.trim(), source: "huggingface", sourceUrl: `https://huggingface.co/datasets/${hfDatasetId.trim()}` });
+          await updateDatasetChunks(dataset.id, remoteDocs as unknown as Parameters<typeof updateDatasetChunks>[1]);
+        }
+        setUploadProgress(`${remoteDocs.length} chunks`);
+      } else {
+        setUploadProgress("Fetching URL...");
+        const res = await fetch("/api/datasets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            source: "url",
+            sourceUrl: sourceUrl.trim(),
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(typeof data.error === "string" ? data.error : "Failed to fetch URL");
+        }
+
+        const urlDocs = (data as { chunks?: Array<Record<string, unknown>> }).chunks ?? [];
+        if (urlDocs.length > 0) {
+          const dataset = await createDataset({ name: name.trim(), source: "url", sourceUrl: sourceUrl.trim() });
+          await updateDatasetChunks(dataset.id, urlDocs as unknown as Parameters<typeof updateDatasetChunks>[1]);
+        }
+        setUploadProgress(`${urlDocs.length} chunks`);
       }
 
       await fetchDatasets();
-      setName("");
-      setUrl("");
+      resetForm();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Failed to add dataset");
+      setUploadProgress(null);
     } finally {
       setIsAdding(false);
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm("Delete this dataset?")) return;
     try {
-      const res = await fetch(`/api/datasets?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? `Status ${res.status}`);
-      }
+      await deleteDataset(id);
       await fetchDatasets();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete dataset");
+      setAddError(err instanceof Error ? err.message : "Failed to delete");
     }
   };
+
+  // ── Total size ─────────────────────────────────────────
+
+  const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
+
+  // ── Render ───────────────────────────────────────────────
 
   return (
     <div className="h-full overflow-y-auto">
@@ -101,45 +268,179 @@ export default function DatasetsPage() {
                 onChange={(e) => setName(e.target.value)}
                 required
                 className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
-                placeholder="e.g., My Support KB"
+                placeholder="e.g., My Knowledge Base"
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-muted mb-1.5">Source</label>
               <select
                 value={source}
-                onChange={(e) => setSource(e.target.value as typeof source)}
+                onChange={(e) => { setSource(e.target.value as SourceType); setAddError(null); }}
                 className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
               >
-                <option value="huggingface">Hugging Face</option>
-                <option value="upload">Upload File</option>
+                <option value="huggingface">HuggingFace</option>
+                <option value="upload">Upload Files</option>
                 <option value="url">URL</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-muted mb-1.5">
-                {source === "huggingface" ? "Dataset ID" : source === "url" ? "URL" : "File Path"}
-              </label>
-              <input
-                type="text"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder={
-                  source === "huggingface"
-                    ? "e.g., galileo-ai/ragbench"
-                    : source === "url"
-                      ? "https://example.com/data.json"
-                      : "/path/to/file.pdf"
-                }
-                required
-                className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
-              />
-            </div>
-            {addError && (
-              <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">
-                {addError}
-              </p>
+
+            {/* ── HuggingFace fields ── */}
+            {source === "huggingface" && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Dataset ID</label>
+                  <input
+                    type="text"
+                    value={hfDatasetId}
+                    onChange={(e) => setHfDatasetId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                    placeholder="e.g., galileo-ai/ragbench"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted mb-1">Config</label>
+                    <input
+                      type="text"
+                      value={hfConfig}
+                      onChange={(e) => setHfConfig(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                      placeholder="default"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted mb-1">Split</label>
+                    <input
+                      type="text"
+                      value={hfSplit}
+                      onChange={(e) => setHfSplit(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                      placeholder="train"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted mb-1">Max Rows</label>
+                    <input
+                      type="number"
+                      value={hfMaxRows}
+                      onChange={(e) => setHfMaxRows(e.target.value)}
+                      min={1}
+                      max={100000}
+                      className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
             )}
+
+            {/* ── URL field ── */}
+            {source === "url" && (
+              <div>
+                <label className="block text-sm font-medium text-muted mb-1.5">URL</label>
+                <input
+                  type="url"
+                  value={sourceUrl}
+                  onChange={(e) => setSourceUrl(e.target.value)}
+                  required
+                  className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                  placeholder="https://example.com/data.json"
+                />
+              </div>
+            )}
+
+            {/* ── Multi-file upload drop zone ── */}
+            {source === "upload" && (
+              <div>
+                <label className="block text-sm font-medium text-muted mb-1.5">
+                  Files ({selectedFiles.length} selected)
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".txt,.md,.json,.csv,.html,.htm,.xml,.log"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={handleFilePick}
+                  className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors ${
+                    dragOver
+                      ? "border-accent bg-accent/5"
+                      : selectedFiles.length > 0
+                        ? "border-success/40 bg-success/5"
+                        : "border-line hover:border-accent/30"
+                  }`}
+                >
+                  {selectedFiles.length > 0 ? (
+                    <div>
+                      <p className="text-sm font-medium text-text">
+                        {selectedFiles.length} file(s) — {(totalSize / 1024).toFixed(1)} KB total
+                      </p>
+                      <p className="text-xs text-accent mt-1">Drop more or click to add</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-sm font-medium text-text">
+                        Drop files here or click to browse
+                      </p>
+                      <p className="text-xs text-muted mt-1">
+                        TXT, JSON, CSV, MD, HTML, XML · 10 MB per file · 50 MB total
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* File list */}
+                {selectedFiles.length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    {selectedFiles.map((f, i) => (
+                      <div
+                        key={f.name + f.lastModified}
+                        className="flex items-center justify-between bg-[#03111a] border border-line rounded-lg px-3 py-2 text-xs"
+                      >
+                        <span className="text-text truncate mr-3 flex-1 min-w-0">{f.name}</span>
+                        <span className="text-muted flex-shrink-0 mr-3">
+                          {(f.size / 1024).toFixed(1)} KB
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                          className="text-muted hover:text-danger transition-colors flex-shrink-0"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFiles([])}
+                      className="text-xs text-muted hover:text-danger transition-colors mt-1 block"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Error */}
+            {addError && (
+              <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{addError}</p>
+            )}
+
+            {/* Progress */}
+            {uploadProgress && (
+              <p className="text-accent text-sm bg-accent/10 border border-accent/20 rounded-lg px-3 py-2">{uploadProgress}</p>
+            )}
+
             <button
               type="submit"
               disabled={isAdding}
@@ -150,14 +451,7 @@ export default function DatasetsPage() {
           </form>
         </div>
 
-        {/* Error */}
-        {error && (
-          <div className="bg-danger/10 border border-danger/20 rounded-xl p-4 mb-6">
-            <p className="text-danger text-sm">{error}</p>
-          </div>
-        )}
-
-        {/* List */}
+        {/* Dataset list */}
         {loading ? (
           <p className="text-muted text-center py-12">Loading datasets...</p>
         ) : datasets.length === 0 ? (
@@ -169,12 +463,23 @@ export default function DatasetsPage() {
               {datasets.map((dataset) => (
                 <div key={dataset.id} className="relative group">
                   <Link href={`/datasets/${dataset.id}`}>
-                    <DatasetCard dataset={dataset} />
+                    <DatasetCard
+                      dataset={{
+                        id: dataset.id,
+                        name: dataset.name,
+                        description: `${dataset.chunkCount} chunks · ${dataset.source}`,
+                        source: dataset.source,
+                        sourceUrl: dataset.sourceUrl ?? undefined,
+                        rowCount: dataset.rowCount,
+                        createdAt: dataset.createdAt,
+                        status: "ready" as const,
+                      }}
+                    />
                   </Link>
                   <button
                     onClick={(e) => {
                       e.preventDefault();
-                      if (confirm(`Delete "${dataset.name}"?`)) handleDelete(dataset.id);
+                      handleDelete(dataset.id);
                     }}
                     className="absolute top-3 right-3 text-xs text-muted hover:text-danger transition-colors opacity-0 group-hover:opacity-100"
                   >

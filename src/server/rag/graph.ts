@@ -1,13 +1,9 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
-import { retrieveDocuments } from "@/server/rag/retrieval";
 import { callLlm } from "@/server/rag/providers";
 import type { ApiKeyStore, LlmProvider, RagDocument } from "@/shared/types";
 
-// We'll keep the helper functions in this file to avoid circular dependencies.
-
 type RagState = {
   question: string;
-  topK: number;
   temperature: number;
   topP: number;
   maxTokens: number;
@@ -20,7 +16,6 @@ type RagState = {
 
 const RagStateAnnotation = Annotation.Root({
   question: Annotation<string>(),
-  topK: Annotation<number>(),
   temperature: Annotation<number>(),
   topP: Annotation<number>(),
   maxTokens: Annotation<number>(),
@@ -35,7 +30,7 @@ function formatDocumentContext(documents: RagDocument[]) {
   return documents
     .map(
       (document, index) =>
-        `Source ${index + 1}: ${document.title}\nSource name: ${document.sourceName}\nScore: ${document.similarity?.toFixed(3) ?? "n/a"}\nContent:\n${document.content}`
+        `Source ${index + 1}: ${document.title}\nSource name: ${document.sourceName}\nContent:\n${document.content}`
     )
     .join("\n\n---\n\n");
 }
@@ -60,44 +55,42 @@ async function answerQuestion(state: RagState) {
 export async function runRagGraph(
   question: string,
   options: {
-    topK?: number;
     temperature?: number;
     topP?: number;
     maxTokens?: number;
     provider?: LlmProvider;
     model?: string;
     apiKeys?: ApiKeyStore;
+    documents?: RagDocument[];
   } = {}
 ) {
   const {
-    topK = 4,
     temperature = 0.2,
     topP = 0.9,
     maxTokens = 4096,
     provider = "nvidia",
     model = "meta/llama-3.1-70b-instruct",
-    apiKeys = {}
+    apiKeys = {},
+    documents = [],
   } = options;
 
+  // In-context RAG: documents come from the client (keyword search via OPFS).
+  // No server-side retrieval needed.
   const graph = new StateGraph(RagStateAnnotation)
-    .addNode("retrieve", async (state: RagState) => ({
-      documents: await retrieveDocuments(state.question, state.topK, state.provider, state.apiKeys),
-    }))
     .addNode("respond", answerQuestion)
-    .addEdge(START, "retrieve")
-    .addEdge("retrieve", "respond")
+    .addEdge(START, "respond")
     .addEdge("respond", END)
     .compile();
 
   const result = await graph.invoke({
     question,
-    topK,
     temperature,
     topP,
     maxTokens,
     provider,
     model,
-    apiKeys
+    apiKeys,
+    documents,
   });
 
   return {
