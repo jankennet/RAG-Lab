@@ -6,6 +6,7 @@ import { PROVIDERS, type LlmProvider } from "@/shared/types";
 interface ModelSelectorProps {
   provider: LlmProvider;
   model: string;
+  apiKey?: string;
   onProviderChange: (provider: LlmProvider) => void;
   onModelChange: (model: string) => void;
 }
@@ -20,6 +21,7 @@ interface ModelsApiResponse {
 export default function ModelSelector({
   provider,
   model,
+  apiKey,
   onProviderChange,
   onModelChange,
 }: ModelSelectorProps) {
@@ -27,6 +29,7 @@ export default function ModelSelector({
   const [dynamicModels, setDynamicModels] = useState<string[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isCustom, setIsCustom] = useState(false);
+  const [fetchedLive, setFetchedLive] = useState(false);
 
   // Fetch models from API when provider changes
   useEffect(() => {
@@ -34,15 +37,25 @@ export default function ModelSelector({
 
     async function fetchModels() {
       setIsFetching(true);
+      setFetchedLive(false);
       try {
-        const response = await fetch(`/api/models?provider=${encodeURIComponent(provider)}`);
+        const headers: Record<string, string> = {};
+        if (apiKey) {
+          headers["Authorization"] = `Bearer ${apiKey}`;
+        }
+
+        const response = await fetch(
+          `/api/models?provider=${encodeURIComponent(provider)}`,
+          { headers },
+        );
         if (!response.ok) return;
         const data = (await response.json()) as ModelsApiResponse;
         if (!cancelled) {
           setDynamicModels(data.models ?? []);
+          if (data.fetched) setFetchedLive(true);
         }
       } catch {
-        // Fail silently — fall back to hardcoded models
+        // Fail silently — server returns curated fallback
       } finally {
         if (!cancelled) setIsFetching(false);
       }
@@ -57,19 +70,19 @@ export default function ModelSelector({
     }
 
     return () => { cancelled = true; };
-  }, [provider]);
+  }, [provider, apiKey]);
 
-  // Merge hardcoded defaults with dynamically fetched models (deduplicated)
-  const mergedModels = (() => {
-    const base = new Set(currentProvider?.models ?? []);
-    for (const m of dynamicModels) base.add(m);
-    return Array.from(base).sort();
+  // Build model list: live API preferred, fall back to curated from API response
+  const modelOptions = (() => {
+    const list = dynamicModels.length > 0
+      ? [...dynamicModels]
+      : (currentProvider?.models ?? []);
+    // Always include currently-selected model
+    if (model && !list.includes(model)) {
+      list.push(model);
+    }
+    return list.sort();
   })();
-
-  // If current model isn't in merged list, add it (custom model)
-  if (model && !mergedModels.includes(model)) {
-    mergedModels.push(model);
-  }
 
   return (
     <div className="flex items-center gap-2">
@@ -122,7 +135,7 @@ export default function ModelSelector({
               }}
               className="appearance-none bg-panel border border-line rounded-xl px-3 py-1.5 pr-6 text-xs text-muted outline-none cursor-pointer focus:border-accent/40 transition-colors max-w-[220px] truncate"
             >
-              {mergedModels.map((m) => (
+              {modelOptions.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
@@ -146,6 +159,9 @@ export default function ModelSelector({
         {/* Fetching indicator */}
         {isFetching && (
           <span className="ml-1 text-[10px] text-muted animate-pulse">↻</span>
+        )}
+        {!isFetching && fetchedLive && (
+          <span className="ml-1 text-[10px] text-success" title="Live from provider API">●</span>
         )}
       </div>
     </div>

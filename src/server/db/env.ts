@@ -10,7 +10,7 @@ const baseServerEnvSchema = z.object({
   AUTH_TOKEN: z.string().optional(),
   NIM_BASE_URL: z.string().url().default("https://integrate.api.nvidia.com/v1"),
   NIM_API_KEY: z.string().min(1),
-  NIM_CHAT_MODEL: z.string().min(1).default("meta/llama-3.1-70b-instruct"),
+  NIM_CHAT_MODEL: z.string().min(1).default("meta/llama-3.3-70b-instruct"),
   NIM_EMBEDDING_MODEL: z.string().optional().default("nvidia/nv-embedqa-e5-v5"),
   NIM_EMBEDDING_DIMENSION: positiveIntFromEnv.optional().default(1024),
 });

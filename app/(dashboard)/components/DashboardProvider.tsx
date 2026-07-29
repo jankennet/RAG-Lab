@@ -135,12 +135,17 @@ export default function DashboardProvider({ children }: { children: ReactNode })
       });
       if (response.ok) {
         const data = await response.json();
-        // Merge server validation state into our status
+        // Merge server validation state — but only if client has a key.
+        // Server status alone is stale after a client-side wipe.
+        const localKeys = loadApiKeys();
         setApiKeyStatus((prev) => {
           const next = { ...prev };
           if (data?.status) {
             for (const p of Object.keys(data.status)) {
-              next[p] = { ...next[p], ...data.status[p] };
+              const hasLocalKey = (localKeys[p as LlmProvider]?.length ?? 0) > 0;
+              if (hasLocalKey) {
+                next[p] = { ...next[p], ...data.status[p] };
+              }
             }
           }
           return next;

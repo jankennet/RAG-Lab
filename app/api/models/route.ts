@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 import { getSessionApiKeys } from "@/server/auth/session";
 import { applyApiGuard, serverError, badRequest, RateLimits } from "@/server/auth/guard";
-import { PROVIDERS } from "@/shared/types";
 import type { LlmProvider } from "@/shared/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FALLBACK_MODELS: Record<LlmProvider, string[]> = {
+// Curated known models per provider — used as fallback when no API key
+// or for Anthropic (no public list-models endpoint).
+const CURATED_MODELS: Record<LlmProvider, string[]> = {
   nvidia: [
+    "meta/llama-3.3-70b-instruct",
     "meta/llama-3.1-70b-instruct",
-    "meta/llama-3.1-405b-instruct",
     "mistralai/mistral-large",
     "google/gemma-2-27b-it",
   ],
@@ -19,17 +20,13 @@ const FALLBACK_MODELS: Record<LlmProvider, string[]> = {
     "gpt-4o-mini",
     "gpt-4-turbo",
     "gpt-3.5-turbo",
-    "o1",
-    "o3-mini",
   ],
   anthropic: [
     "claude-sonnet-4-20250514",
     "claude-haiku-4-20251001",
     "claude-opus-5-20251001",
-    "claude-opus-4-20250514",
     "claude-3-5-sonnet-latest",
     "claude-3-opus-latest",
-    "claude-3-haiku-latest",
   ],
 };
 
@@ -74,6 +71,26 @@ async function fetchOpenAiModels(apiKey: string): Promise<string[]> {
   );
 }
 
+/**
+ * Resolve an API key for the given provider. Checks in order:
+ * 1. Authorization header (Bearer token) — passed by client from localStorage
+ * 2. Server session cookie
+ */
+async function resolveApiKey(request: Request, provider: LlmProvider): Promise<string | null> {
+  // 1. Authorization header
+  const authHeader = request.headers.get("Authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.slice(7);
+  }
+
+  // 2. Session cookie
+  const sessionKeys = await getSessionApiKeys();
+  const entry = sessionKeys[provider];
+  if (entry?.key) return entry.key;
+
+  return null;
+}
+
 export async function GET(request: Request) {
   try {
     const guard = applyApiGuard(request, RateLimits.default);
@@ -86,40 +103,36 @@ export async function GET(request: Request) {
       return badRequest("Invalid or missing ?provider= parameter");
     }
 
-    const apiKeys = await getSessionApiKeys();
-    const entry = apiKeys[provider];
-    const hasKey = (entry?.key?.length ?? 0) > 0;
+    const apiKey = await resolveApiKey(request, provider);
 
     let models: string[] = [];
     let fetched = false;
 
-    if (hasKey) {
+    if (apiKey) {
       switch (provider) {
         case "nvidia":
-          models = await fetchNvidiaModels(entry!.key);
+          models = await fetchNvidiaModels(apiKey);
           break;
         case "openai":
-          models = await fetchOpenAiModels(entry!.key);
+          models = await fetchOpenAiModels(apiKey);
           break;
         case "anthropic":
-          // Anthropic has no public list-models endpoint — rely on fallback
+          // Anthropic has no public list-models endpoint
           break;
       }
       if (models.length > 0) fetched = true;
     }
 
-    // Fall back to curated defaults if API fetch fails or no key
+    // Fall back to curated list when fetch fails, no key, or Anthropic
     if (models.length === 0) {
-      models = FALLBACK_MODELS[provider];
+      models = CURATED_MODELS[provider];
     }
-
-    const config = PROVIDERS.find((p) => p.value === provider);
 
     return NextResponse.json({
       provider,
       models,
       fetched,
-      defaultModel: config?.defaultModel ?? models[0] ?? "",
+      defaultModel: models[0] ?? "",
     });
   } catch (error) {
     console.error("[models] GET error:", error instanceof Error ? error.message : error);

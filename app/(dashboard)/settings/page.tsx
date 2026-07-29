@@ -35,6 +35,7 @@ export default function SettingsPage() {
   const [nukeConfirm, setNukeConfirm] = useState("");
   const [nuking, setNuking] = useState(false);
   const [nukeDone, setNukeDone] = useState(false);
+  const [modelsFetchedLive, setModelsFetchedLive] = useState(false);
 
   const selectedProvider = PROVIDERS.find((p) => p.value === preferences.provider);
 
@@ -44,15 +45,27 @@ export default function SettingsPage() {
 
     async function fetchModels() {
       setIsFetchingModels(true);
+      setModelsFetchedLive(false);
       try {
+        const headers: Record<string, string> = {};
+        // Send API key from localStorage so server can fetch real models
+        const localKey = apiKeys[preferences.provider];
+        if (localKey) {
+          headers["Authorization"] = `Bearer ${localKey}`;
+        }
+
         const response = await fetch(
-          `/api/models?provider=${encodeURIComponent(preferences.provider)}`
+          `/api/models?provider=${encodeURIComponent(preferences.provider)}`,
+          { headers },
         );
         if (!response.ok) return;
         const data = await response.json();
-        if (!cancelled) setDynamicModels(data.models ?? []);
+        if (!cancelled) {
+          setDynamicModels(data.models ?? []);
+          if (data.fetched) setModelsFetchedLive(true);
+        }
       } catch {
-        // Fall back to hardcoded
+        // Fall back to curated list
       } finally {
         if (!cancelled) setIsFetchingModels(false);
       }
@@ -67,17 +80,18 @@ export default function SettingsPage() {
     }
 
     return () => { cancelled = true; };
-  }, [preferences.provider]);
+  }, [preferences.provider, apiKeys]);
 
-  // Merge hardcoded with fetched
-  const mergedModels = (() => {
-    const base = new Set(selectedProvider?.models ?? []);
-    for (const m of dynamicModels) base.add(m);
-    const list = Array.from(base).sort();
+  // Build model list: live API results preferred, fall back to curated from API response
+  const modelOptions = (() => {
+    const list = dynamicModels.length > 0
+      ? [...dynamicModels]
+      : (selectedProvider?.models ?? []);
+    // Always include currently-selected model
     if (preferences.model && !list.includes(preferences.model)) {
       list.push(preferences.model);
     }
-    return list;
+    return list.sort();
   })();
 
   const handleSubmitKey = async (provider: LlmProvider) => {
@@ -143,6 +157,12 @@ export default function SettingsPage() {
                   {isFetchingModels && (
                     <span className="text-[10px] text-muted animate-pulse">Fetching models...</span>
                   )}
+                  {!isFetchingModels && modelsFetchedLive && (
+                    <span className="text-[10px] text-success">Live</span>
+                  )}
+                  {!isFetchingModels && dynamicModels.length > 0 && !modelsFetchedLive && (
+                    <span className="text-[10px] text-muted">Curated</span>
+                  )}
                 </div>
                 {isCustomModel ? (
                   <input
@@ -166,7 +186,7 @@ export default function SettingsPage() {
                     }}
                     className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
                   >
-                    {mergedModels.map((m) => (
+                    {modelOptions.map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>
@@ -305,9 +325,27 @@ export default function SettingsPage() {
                       <span className="text-sm font-medium">
                         {p.icon} {p.label}
                       </span>
-                      <p className="text-xs text-muted mt-0.5">Default: {p.defaultModel}</p>
+                      <p className="text-xs text-muted mt-0.5">
+                        <a
+                          href={
+                            p.value === "openai"
+                              ? "https://developers.openai.com/api/docs/models"
+                              : p.value === "anthropic"
+                                ? "https://platform.claude.com/docs/en/about-claude/models/overview"
+                                : "https://build.nvidia.com/models"
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-accent hover:underline"
+                        >
+                          {p.value === "openai"
+                            ? "openai.com"
+                            : p.value === "anthropic"
+                              ? "claude.com"
+                              : "build.nvidia.com"}
+                        </a>
+                      </p>
                     </div>
-                    <span className="text-xs text-muted">{p.models.length} models</span>
                   </div>
                 ))}
               </div>

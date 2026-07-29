@@ -4,12 +4,13 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import DatasetCard from "../../components/DatasetCard";
 import SourceCard from "../../components/SourceCard";
-import type { Dataset, RagDocument } from "@/shared/types";
+import { loadIndex, loadDocuments, chunkText, makeDocuments, updateDatasetChunks } from "@/client/opfs";
+import type { OpfsDataset, OpfsDocument } from "@/client/opfs";
 
 export default function DatasetDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [dataset, setDataset] = useState<Dataset | null>(null);
-  const [chunks, setChunks] = useState<RagDocument[]>([]);
+  const [dataset, setDataset] = useState<OpfsDataset | null>(null);
+  const [chunks, setChunks] = useState<OpfsDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reindexing, setReindexing] = useState(false);
@@ -18,14 +19,13 @@ export default function DatasetDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/datasets/${encodeURIComponent(id)}`);
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? `Status ${res.status}`);
+      const index = await loadIndex();
+      const ds = index.find((d) => d.id === id) ?? null;
+      setDataset(ds);
+      if (ds) {
+        const docs = await loadDocuments(ds.id);
+        setChunks(docs);
       }
-      const data = await res.json();
-      setDataset(data.dataset ?? null);
-      setChunks(data.chunks ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dataset");
     } finally {
@@ -36,6 +36,24 @@ export default function DatasetDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleReindex = async () => {
+    if (!dataset) return;
+    setReindexing(true);
+    try {
+      const docs = await loadDocuments(dataset.id);
+      // Re-chunk: join all document content, re-chunk, store back
+      const allContent = docs.map((d) => d.content).join("\n\n");
+      const newChunks = chunkText(allContent, 1000, 150);
+      const newDocs = makeDocuments(dataset.name, null, dataset.name, newChunks, { reindexed: true });
+      await updateDatasetChunks(dataset.id, newDocs);
+      await load();
+    } catch (err) {
+      console.error("Reindex failed:", err);
+    } finally {
+      setReindexing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -80,17 +98,7 @@ export default function DatasetDetailPage() {
             </p>
           </div>
           <button
-            onClick={async () => {
-              setReindexing(true);
-              try {
-                await fetch(`/api/datasets/${encodeURIComponent(id)}`, { method: "PATCH" });
-                await load();
-              } catch (err) {
-                console.error("Reindex failed:", err);
-              } finally {
-                setReindexing(false);
-              }
-            }}
+            onClick={handleReindex}
             disabled={reindexing}
             className="px-4 py-2 text-sm font-medium bg-accent/10 border border-accent/20 text-accent rounded-xl hover:bg-accent/15 transition-colors disabled:opacity-40"
           >
@@ -100,14 +108,23 @@ export default function DatasetDetailPage() {
 
         {/* Summary */}
         <div className="mb-8">
-          <DatasetCard dataset={dataset} />
+          <DatasetCard dataset={{
+            id: dataset.id,
+            name: dataset.name,
+            description: `${dataset.chunkCount} chunks · ${dataset.source}`,
+            source: dataset.source,
+            sourceUrl: dataset.sourceUrl ?? undefined,
+            rowCount: dataset.rowCount,
+            createdAt: dataset.createdAt,
+            status: "ready" as const,
+          }} />
         </div>
 
         {/* Chunks */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">Chunks</h2>
-            <span className="text-sm text-muted">{dataset.rowCount.toLocaleString()} rows</span>
+            <span className="text-sm text-muted">{chunks.length} documents</span>
           </div>
           {chunks.length === 0 ? (
             <p className="text-muted text-sm py-8 text-center">No chunks indexed yet.</p>
@@ -122,19 +139,19 @@ export default function DatasetDetailPage() {
 
         {/* Status */}
         <div className="bg-bg-alt rounded-2xl border border-line p-6">
-          <h2 className="font-semibold mb-4">Ingestion Status</h2>
+          <h2 className="font-semibold mb-4">Info</h2>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between py-2 border-b border-line/50">
               <span className="text-muted">Source</span>
               <span className="font-medium">{dataset.source}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-line/50">
-              <span className="text-muted">Rows</span>
-              <span className="font-medium">{dataset.rowCount.toLocaleString()}</span>
+              <span className="text-muted">Chunks</span>
+              <span className="font-medium">{dataset.chunkCount}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-line/50">
-              <span className="text-muted">Status</span>
-              <span className="font-medium">{dataset.status}</span>
+              <span className="text-muted">Rows</span>
+              <span className="font-medium">{dataset.rowCount}</span>
             </div>
             <div className="flex justify-between py-2">
               <span className="text-muted">Created</span>

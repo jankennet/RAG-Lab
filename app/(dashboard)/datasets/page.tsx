@@ -30,8 +30,81 @@ export default function DatasetsPage() {
   // HuggingFace fields
   const [hfDatasetId, setHfDatasetId] = useState("");
   const [hfConfig, setHfConfig] = useState("default");
+  const [hfConfigs, setHfConfigs] = useState<string[]>([]);
+  const [hfConfigsLoading, setHfConfigsLoading] = useState(false);
   const [hfSplit, setHfSplit] = useState("train");
+  const [hfSplits, setHfSplits] = useState<Array<{ config: string; split: string }>>([]);
+  const [hfSplitsLoading, setHfSplitsLoading] = useState(false);
   const [hfMaxRows, setHfMaxRows] = useState("100");
+  const hfDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch available subsets/configs when dataset ID changes
+  const loadHfConfigs = useCallback(async (datasetId: string) => {
+    if (!datasetId.includes("/") || datasetId.trim().length < 5) {
+      setHfConfigs([]);
+      return;
+    }
+    setHfConfigsLoading(true);
+    try {
+      const res = await fetch(`https://huggingface.co/api/datasets/${encodeURIComponent(datasetId.trim())}`);
+      if (!res.ok) { setHfConfigs([]); return; }
+      const data = await res.json();
+      const configs: string[] = data?.configs?.map((c: { config: string }) => c.config) ?? [];
+      setHfConfigs(configs);
+      // Default to first config if available and current selection not in list
+      if (configs.length > 0) {
+        setHfConfig((prev) => configs.includes(prev) ? prev : configs[0]);
+      }
+    } catch {
+      setHfConfigs([]);
+    } finally {
+      setHfConfigsLoading(false);
+    }
+  }, []);
+
+  // Debounced config fetch on dataset ID change
+  useEffect(() => {
+    if (source !== "huggingface") return;
+    if (hfDebounceRef.current) clearTimeout(hfDebounceRef.current);
+    hfDebounceRef.current = setTimeout(() => {
+      if (hfDatasetId.trim()) loadHfConfigs(hfDatasetId);
+    }, 600);
+    return () => { if (hfDebounceRef.current) clearTimeout(hfDebounceRef.current); };
+  }, [hfDatasetId, source, loadHfConfigs]);
+
+  // Fetch available splits when config changes
+  const loadHfSplits = useCallback(async (datasetId: string, config: string) => {
+    if (!datasetId.includes("/") || !config) { setHfSplits([]); return; }
+    setHfSplitsLoading(true);
+    try {
+      const url = new URL("https://datasets-server.huggingface.co/splits");
+      url.searchParams.set("dataset", datasetId.trim());
+      url.searchParams.set("config", config);
+      const res = await fetch(url);
+      if (!res.ok) { setHfSplits([]); return; }
+      const data = await res.json();
+      const splits = (data?.splits ?? []) as Array<{ config: string; split: string }>;
+      setHfSplits(splits);
+      // Default to first split if available and current not in list
+      if (splits.length > 0) {
+        const splitNames = splits.map((s) => s.split);
+        setHfSplit((prev) => splitNames.includes(prev) ? prev : splitNames[0]);
+      }
+    } catch {
+      setHfSplits([]);
+    } finally {
+      setHfSplitsLoading(false);
+    }
+  }, []);
+
+  // Auto-fetch splits when config changes
+  useEffect(() => {
+    if (source !== "huggingface" || !hfDatasetId.trim() || !hfConfig.trim()) {
+      setHfSplits([]);
+      return;
+    }
+    loadHfSplits(hfDatasetId, hfConfig);
+  }, [hfConfig, hfDatasetId, source, loadHfSplits]);
 
   // URL field
   const [sourceUrl, setSourceUrl] = useState("");
@@ -62,6 +135,8 @@ export default function DatasetsPage() {
     setName("");
     setHfDatasetId("");
     setHfConfig("default");
+    setHfConfigs([]);
+    setHfSplits([]);
     setHfSplit("train");
     setHfMaxRows("100");
     setSourceUrl("");
@@ -301,24 +376,48 @@ export default function DatasetsPage() {
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-muted mb-1">Config</label>
-                    <input
-                      type="text"
-                      value={hfConfig}
-                      onChange={(e) => setHfConfig(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
-                      placeholder="default"
-                    />
+                    <label className="block text-xs font-medium text-muted mb-1">Subset</label>
+                    {hfConfigs.length > 0 ? (
+                      <select
+                        value={hfConfig}
+                        onChange={(e) => setHfConfig(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                      >
+                        {hfConfigs.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={hfConfig}
+                        onChange={(e) => setHfConfig(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                        placeholder={hfConfigsLoading ? "Loading subsets..." : "default"}
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-muted mb-1">Split</label>
-                    <input
-                      type="text"
-                      value={hfSplit}
-                      onChange={(e) => setHfSplit(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
-                      placeholder="train"
-                    />
+                    {hfSplits.length > 0 ? (
+                      <select
+                        value={hfSplit}
+                        onChange={(e) => setHfSplit(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                      >
+                        {hfSplits.map((s) => (
+                          <option key={s.split} value={s.split}>{s.split}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={hfSplit}
+                        onChange={(e) => setHfSplit(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
+                        placeholder={hfSplitsLoading ? "Loading splits..." : "train"}
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-muted mb-1">Max Rows</label>

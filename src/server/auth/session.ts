@@ -75,5 +75,11 @@ export async function setSessionApiKeys(keys: ApiKeyStore): Promise<void> {
 /** Clear the session cookie (remove API keys). */
 export async function clearSessionApiKeys(): Promise<void> {
   const cookieJar = await cookies();
-  cookieJar.delete(COOKIE_NAME);
+  cookieJar.delete({
+    name: COOKIE_NAME,
+    path: "/api",
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+  });
 }

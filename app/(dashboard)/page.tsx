@@ -172,6 +172,7 @@ export default function ChatPage() {
         <ModelSelector
           provider={preferences.provider}
           model={preferences.model}
+          apiKey={apiKeys[preferences.provider]}
           onProviderChange={handleProviderChange}
           onModelChange={handleModelChange}
         />
