@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
@@ -35,6 +35,12 @@ export default function ChatMessage({ message }: ChatMessageProps) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const isUser = message.role === "user";
 
+  // Strip residual inline citations like [1], [2], [1,3] from answer
+  const cleanContent = useMemo(
+    () => message.content.replace(/\[\d+(?:,\d+)*\]/g, ""),
+    [message.content]
+  );
+
   return (
     <div className={`flex w-full mb-6 ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[85%] ${isUser ? "order-1" : "order-1"}`}>
@@ -59,7 +65,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeSanitize]}
               >
-                {message.content}
+                {cleanContent}
               </ReactMarkdown>
             </div>
           )}
@@ -78,7 +84,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
 
             {sourcesOpen && (
               <div className="mt-2 space-y-2">
-                {message.sources.map((source, i) => (
+                {message.sources.map((source) => (
                   <div
                     key={source.id}
                     className="bg-bg-alt border border-line rounded-xl p-3 text-xs"

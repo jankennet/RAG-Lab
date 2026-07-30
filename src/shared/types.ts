@@ -107,7 +107,6 @@ export const PROVIDERS: ProviderConfig[] = [
     icon: "🔮",
     models: [
       "meta/llama-3.3-70b-instruct",
-      "meta/llama-3.1-70b-instruct",
       "mistralai/mistral-large",
       "google/gemma-2-27b-it",
     ],

@@ -1,4 +1,5 @@
 import type { LlmProvider } from "@/shared/types";
+import { PROVIDERS } from "@/shared/types";
 
 export type DashboardPreferences = {
   provider: LlmProvider;
@@ -12,7 +13,7 @@ export type DashboardPreferences = {
 
 export const defaultDashboardPreferences: DashboardPreferences = {
   provider: "nvidia",
-  model: "meta/llama-3.1-70b-instruct",
+  model: "meta/llama-3.3-70b-instruct",
   activeDatasetId: "",
   topK: 4,
   temperature: 0.2,
@@ -34,10 +35,16 @@ export function loadDashboardPreferences(): DashboardPreferences {
       return defaultDashboardPreferences;
     }
 
-    return {
-      ...defaultDashboardPreferences,
-      ...JSON.parse(raw),
-    } as DashboardPreferences;
+    const parsed = JSON.parse(raw) as Partial<DashboardPreferences>;
+    const merged = { ...defaultDashboardPreferences, ...parsed };
+
+    // Migrate stale model — ensure it's valid for the selected provider
+    const providerCfg = PROVIDERS.find((p) => p.value === merged.provider);
+    if (providerCfg && !providerCfg.models.includes(merged.model)) {
+      merged.model = providerCfg.defaultModel;
+    }
+
+    return merged as DashboardPreferences;
   } catch {
     return defaultDashboardPreferences;
   }

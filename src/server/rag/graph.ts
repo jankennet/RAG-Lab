@@ -30,8 +30,10 @@ function formatDocumentContext(documents: RagDocument[]) {
   if (documents.length === 0) return "No retrieved context.";
   return documents
     .map(
-      (doc, index) =>
-        `Source ${index + 1}: ${doc.title}\nSource name: ${doc.sourceName}\nContent:\n${doc.content}`,
+      (doc, index) => {
+        const sim = doc.similarity !== undefined ? ` (relevance: ${(doc.similarity * 100).toFixed(0)}%)` : "";
+        return `Source ${index + 1}: ${doc.title}${sim}\nSource name: ${doc.sourceName}\nContent:\n${doc.content}`;
+      },
     )
     .join("\n\n---\n\n");
 }
@@ -48,9 +50,14 @@ async function answerQuestion(state: RagState) {
       {
         role: "system",
         content:
-          "You are the assistant for Multi-Source Agentic RAG Platform. " +
-          "Answer only from supplied context when possible. If context misses answer, say what is missing. " +
-          "Cite source numbers inline like [1], [2]. Keep answer concise and specific.",
+          "You are a RAG assistant answering from data records and column summaries. " +
+          "Answer concisely — 1-3 sentences. " +
+          "Use the provided records to answer directly. If the question asks for aggregations " +
+          "(counts, averages, trends, comparisons), synthesize across all relevant records. " +
+          "When records contain location/type/status fields, group and compare them correctly. " +
+          "Never list raw data rows — give the synthesized answer. " +
+          "State numbers flatly: 'Gold cards average $450K limit across 2000 records.' " +
+          "If context lacks enough information, say 'Not enough context to answer.'",
       },
       {
         role: "user",
@@ -93,7 +100,7 @@ export async function runRagGraph(
     topP = 0.9,
     maxTokens = 4096,
     provider = "nvidia",
-    model = "meta/llama-3.1-70b-instruct",
+    model = "meta/llama-3.3-70b-instruct",
     apiKeys = {},
     documents = [],
   } = options;
@@ -140,7 +147,7 @@ export async function runRagGraphWithRetrieval(
     topP = 0.9,
     maxTokens = 4096,
     provider = "nvidia",
-    model = "meta/llama-3.1-70b-instruct",
+    model = "meta/llama-3.3-70b-instruct",
     apiKeys = {},
   } = options;
 

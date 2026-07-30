@@ -9,7 +9,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "ingest": "tsx scripts/ingest.ts",
-    "benchmark": "tsx scripts/benchmark.ts"
+    "benchmark": "tsx scripts/benchmark.ts",
+    "rag-service": "bash python-service/start.sh"
   },
   "dependencies": {
     "@langchain/anthropic": "^1.5.2",
