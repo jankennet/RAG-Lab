@@ -7,9 +7,7 @@ import type { OpfsDataset } from "@/client/opfs";
 import { useDashboard } from "../components/DashboardProvider";
 
 type BenchmarkMetrics = {
-  recallAtK: number;
-  precisionAtK: number;
-  hitRateAtK: number;
+  latencyMs: number;
   faithfulness: number;
   answerRelevance: number;
   contextUtilization: number;
@@ -34,6 +32,10 @@ function ScoreBadge({ score }: { score: number }) {
   return <span className={`font-mono text-xs font-medium ${color}`}>{pct}%</span>;
 }
 
+function formatMs(ms: number): string {
+  return ms < 1000 ? `${ms.toFixed(0)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
 export default function BenchmarksPage() {
   const { preferences } = useDashboard();
   const [runs, setRuns] = useState<BenchmarkRun[]>([]);
@@ -49,7 +51,6 @@ export default function BenchmarksPage() {
   // ── Running animation ──
   const RUN_PHASES = [
     "Loading documents from OPFS...",
-    "Scoring retrieval relevance...",
     "Evaluating generation quality with LLM...",
     "Checking faithfulness against context...",
     "Analyzing answer relevance...",
@@ -69,11 +70,9 @@ export default function BenchmarksPage() {
     setPhaseIdx(0);
     setProgress(0);
 
-    // advance phase every ~2s
     phaseInterval.current = setInterval(() => {
       setPhaseIdx((p) => {
         if (p >= RUN_PHASES.length - 1) {
-          // keep cycling last few phases
           return Math.max(RUN_PHASES.length - 3, p);
         }
         return p + 1;
@@ -174,7 +173,7 @@ export default function BenchmarksPage() {
         <div className="bg-bg-alt rounded-2xl border border-line p-6 mb-8">
           <h2 className="font-semibold mb-2">Run Benchmark</h2>
           <p className="text-sm text-muted mb-6">
-            Evaluate retrieval quality against a dataset using Recall@k, Precision@k, Hit Rate@k, and LLM-based generation metrics.
+            Evaluate retrieval quality using LLM-based generation metrics (faithfulness, relevance, context utilization) and latency.
           </p>
           <form onSubmit={handleTrigger} className="space-y-4">
             <div>
@@ -221,7 +220,6 @@ export default function BenchmarksPage() {
           {/* ── Running overlay ── */}
           {triggering && (
             <div className="mt-6 bg-[#03111a] border border-accent/20 rounded-2xl p-5 overflow-hidden relative">
-              {/* retro progress bar */}
               <div className="h-2 bg-bg rounded-full overflow-hidden mb-4">
                 <div
                   className="h-full rounded-full bg-accent transition-all duration-700 ease-out"
@@ -229,7 +227,6 @@ export default function BenchmarksPage() {
                 />
               </div>
 
-              {/* cycling status */}
               <div className="flex items-center gap-3 min-h-[2.5rem]">
                 <span className="text-accent font-mono text-sm animate-pulse">
                   {RUN_PHASES[phaseIdx]}
@@ -280,18 +277,10 @@ export default function BenchmarksPage() {
                     <span className="text-muted">&rarr;</span>
                   </div>
                   {run.metrics && (
-                    <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-line">
+                    <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-line">
                       <div>
-                        <span className="text-xs text-muted block mb-0.5">Recall@k</span>
-                        <ScoreBadge score={run.metrics.recallAtK} />
-                      </div>
-                      <div>
-                        <span className="text-xs text-muted block mb-0.5">Precision@k</span>
-                        <ScoreBadge score={run.metrics.precisionAtK} />
-                      </div>
-                      <div>
-                        <span className="text-xs text-muted block mb-0.5">Hit Rate@k</span>
-                        <ScoreBadge score={run.metrics.hitRateAtK} />
+                        <span className="text-xs text-muted block mb-0.5">Latency</span>
+                        <span className="font-mono text-xs font-medium">{formatMs(run.metrics.latencyMs)}</span>
                       </div>
                       <div>
                         <span className="text-xs text-muted block mb-0.5">Faithfulness</span>

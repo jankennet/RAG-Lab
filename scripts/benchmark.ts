@@ -1,11 +1,11 @@
 /**
- * Universal benchmark CLI.
+ * Benchmark CLI.
  *
  * Usage:
  *   tsx scripts/benchmark.ts --dataset <name> --questions <file.json> [options]
  *
  * Questions file format:
- *   [{ question: "...", reference: "...", relevantIds?: [...] }]
+ *   [{ question: "...", reference: "..." }]
  *
  * Examples:
  *   tsx scripts/benchmark.ts --dataset galileo-ai_ragbench --questions bench-qs.json
@@ -18,12 +18,12 @@ import { z } from "zod";
 import { runRagGraphWithRetrieval } from "@/server/rag/graph";
 import { runBenchmark } from "@/server/rag/benchmark";
 import { DATA_DIR } from "@/server/ingestion/store";
+import { parseContent } from "@/server/ingestion/parse";
 import type { RagDocument } from "@/shared/types";
 
 const questionSchema = z.object({
   question: z.string().min(1),
   reference: z.string().min(1),
-  relevantIds: z.array(z.string()).optional(),
 });
 
 function parseArgs(): Record<string, string | boolean> {
@@ -109,8 +109,10 @@ async function main() {
     console.error("");
     console.error("Options:");
     console.error("  --dataset            Local dataset name (required)");
-    console.error("  --questions          JSON file with question/reference pairs");
+    console.error("  --questions          JSON or CSV file with question/reference pairs");
     console.error("  --questions-from-hf  Fetch questions from HF datasets-server");
+    console.error("  --hf-question-field  HF field name for question (auto-detected)");
+    console.error("  --hf-answer-field    HF field name for answer (default 'answer')");
     console.error("  --provider           LLM provider (default nvidia)");
     console.error("  --model              LLM model");
     process.exitCode = 1;
@@ -130,21 +132,39 @@ async function main() {
       const parsed = JSON.parse(raw);
       const list = Array.isArray(parsed) ? parsed : [parsed];
       rows = list.map((r: unknown) => questionSchema.parse(r));
+    } else if (questionsFile.endsWith(".csv")) {
+      // Use shared CSV parser that handles quoted fields properly
+      const { rows: parsedRows, fieldHints } = parseContent(raw, "text/csv");
+      const qField = args["hf-question-field"] as string || fieldHints.title || parsedRows[0] ? Object.keys(parsedRows[0]).find(k => k.toLowerCase().includes("question")) || "" : "";
+      const aField = args["hf-answer-field"] as string || "answer";
+      rows = parsedRows
+        .map((r: Record<string, unknown>) => ({
+          question: String(r[qField] ?? r[Object.keys(r)[0]] ?? ""),
+          reference: String(r[aField] ?? r[Object.keys(r)[1]] ?? ""),
+        }))
+        .filter((r: { question: string; reference: string }) => r.question && r.reference);
+
+      if (rows.length === 0) {
+        // Fallback: try raw CSV manual parse for different column names
+        const lines = raw.split(/\r?\n/).filter(Boolean);
+        const headers = lines[0].split(",");
+        const qIdx = headers.findIndex((h: string) => /question|query|input/i.test(h));
+        const rIdx = headers.findIndex((h: string) => /answer|reference|output|response/i.test(h));
+        if (qIdx >= 0 && rIdx >= 0) {
+          rows = lines.slice(1).map((l: string) => {
+            const cols = l.split(",");
+            return {
+              question: cols[qIdx]?.trim() ?? "",
+              reference: cols.slice(rIdx).join(",").trim(), // collect remaining fields to avoid cut
+            };
+          }).filter((r: { question: string; reference: string }) => r.question && r.reference);
+        }
+      }
     } else {
-      // CSV: header row, question,reference
-      const lines = raw.split(/\r?\n/).filter(Boolean);
-      const headers = lines[0].split(",");
-      const qIdx = headers.findIndex((h: string) => h.toLowerCase().includes("question"));
-      const rIdx = headers.findIndex((h: string) => h.toLowerCase().includes("answer"));
-      if (qIdx === -1 || rIdx === -1) throw new Error("CSV needs 'question','answer' columns");
-      rows = lines.slice(1).map((l: string) => {
-        const cols = l.split(",");
-        return { question: cols[qIdx], reference: cols[rIdx] };
-      });
+      throw new Error("Unsupported file format. Use .json or .csv");
     }
   } else if (questionsFromHf) {
     const { downloadHfRows } = await import("@/server/ingestion/download");
-    const { parseContent } = await import("@/server/ingestion/parse");
 
     // Use dataset name as HF dataset name
     const hfName = datasetName.replace(/_/g, "/");
@@ -187,7 +207,6 @@ async function main() {
       });
       return {
         answer: result.answer,
-        retrievedIds: result.documents.map((d) => d.sourceKey),
       };
     },
   );
@@ -197,30 +216,27 @@ async function main() {
   console.log(`RAG Benchmark Report — ${report.dataset}`);
   console.log("=".repeat(60));
   console.log(`Scored rows:   ${report.scoredRows}`);
+  console.log(`Avg latency:   ${report.latencyMs.avg.toFixed(0)} ms/row`);
   console.log(`Total latency: ${report.latencyMs.total.toFixed(0)} ms`);
-  console.log(`Avg latency:   ${report.latencyMs.avg.toFixed(0)} ms`);
   console.log("");
   console.log("─ Answer Quality ─");
   console.log(`Token F1: ${(report.answer.tokenF1 * 100).toFixed(2)}%`);
   console.log("");
 
-  if (report.retrieval) {
-    console.log("─ Retrieval Quality ─");
-    console.log(`MRR:      ${report.retrieval.mrr.toFixed(4)}`);
-    console.log(`nDCG:     ${report.retrieval.ndcg.toFixed(4)}`);
-    console.log(`Precision@K: ${report.retrieval.precisionAtK.map((v, i) => `@${[1, 3, 5, 10][i]}: ${(v * 100).toFixed(1)}%`).join(", ")}`);
-    console.log(`Recall@K:    ${report.retrieval.recallAtK.map((v, i) => `@${[1, 3, 5, 10][i]}: ${(v * 100).toFixed(1)}%`).join(", ")}`);
-    console.log("");
-  }
-
   const sorted = [...report.rows].sort((a, b) => a.answerScore - b.answerScore);
+
   console.log("─ Best 3 ─");
   for (const r of sorted.slice(-3).reverse()) {
-    console.log(`  F1=${(r.answerScore * 100).toFixed(1)}% Q: ${r.question.slice(0, 80)}`);
+    console.log(`  F1=${(r.answerScore * 100).toFixed(1)}%  ${r.latencyMs.toFixed(0)}ms  Q: ${r.question.slice(0, 80)}`);
   }
   console.log("\n─ Worst 3 ─");
   for (const r of sorted.slice(0, 3)) {
-    console.log(`  F1=${(r.answerScore * 100).toFixed(1)}% Q: ${r.question.slice(0, 80)}`);
+    console.log(`  F1=${(r.answerScore * 100).toFixed(1)}%  ${r.latencyMs.toFixed(0)}ms  Q: ${r.question.slice(0, 80)}`);
+  }
+  console.log("\n─ By Latency (slowest) ─");
+  const byLatency = [...report.rows].sort((a, b) => b.latencyMs - a.latencyMs);
+  for (const r of byLatency.slice(0, 3)) {
+    console.log(`  ${r.latencyMs.toFixed(0)}ms  F1=${(r.answerScore * 100).toFixed(1)}%  Q: ${r.question.slice(0, 80)}`);
   }
 }
 

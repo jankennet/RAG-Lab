@@ -18,16 +18,10 @@ export type {
 
 export {
   tokenF1,
-  precisionAtK,
-  recallAtK,
-  mrr,
-  ndcgAtK,
-  evaluateRetrieval,
   runBenchmark,
 } from "@/server/rag/benchmark";
 
 export type {
-  RetrievalEvalResult,
   AnswerEvalResult,
   EvalRow,
   BenchmarkReport,

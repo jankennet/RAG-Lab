@@ -7,21 +7,15 @@ type QuestionResult = {
   question: string;
   reference: string;
   retrievedCount: number;
-  relevantInTopK: number;
-  totalRelevant: number;
-  recallAtK: number;
-  precisionAtK: number;
-  hitRateAtK: number;
   retrievedDocTitles: string[];
+  latencyMs: number;
   faithfulness: number;
   answerRelevance: number;
   contextUtilization: number;
 };
 
 type BenchmarkMetrics = {
-  recallAtK: number;
-  precisionAtK: number;
-  hitRateAtK: number;
+  latencyMs: number;
   faithfulness: number;
   answerRelevance: number;
   contextUtilization: number;
@@ -42,29 +36,17 @@ type MetricDef = {
   question: string;
   definition: string;
   suffix: string;
+  isLatency: boolean;
 };
 
 const METRICS: MetricDef[] = [
   {
-    key: "recallAtK",
-    label: "Recall@k",
-    question: "Did we find enough good documents?",
-    definition: "Out of all relevant documents, what percentage did we retrieve in our top-k results?",
-    suffix: "higher is better",
-  },
-  {
-    key: "precisionAtK",
-    label: "Precision@k",
-    question: "Are most of our results good?",
-    definition: "Out of the top-k documents we retrieved, what percentage are actually relevant?",
-    suffix: "higher is better",
-  },
-  {
-    key: "hitRateAtK",
-    label: "Hit Rate@k",
-    question: "Did we find at least one good document?",
-    definition: "Percentage of queries where at least one relevant document appears in top-k results.",
-    suffix: "higher is better",
+    key: "latencyMs",
+    label: "Latency",
+    question: "How fast is the retrieval?",
+    definition: "Average time per question to search + evaluate retrieved context.",
+    suffix: "lower is better",
+    isLatency: true,
   },
   {
     key: "faithfulness",
@@ -72,13 +54,15 @@ const METRICS: MetricDef[] = [
     question: "Is the answer factually correct?",
     definition: "Does the generated answer accurately reflect the information in the retrieved documents?",
     suffix: "higher is better",
+    isLatency: false,
   },
   {
     key: "answerRelevance",
     label: "Answer Relevance",
     question: "Does the answer address the question?",
-    definition: "How well does the generated answer match the user’s question?",
+    definition: "How well does the generated answer match the user's question?",
     suffix: "higher is better",
+    isLatency: false,
   },
   {
     key: "contextUtilization",
@@ -86,8 +70,13 @@ const METRICS: MetricDef[] = [
     question: "How well did we use the retrieved information?",
     definition: "Measures how effectively the generation model used the retrieved context.",
     suffix: "higher is better",
+    isLatency: false,
   },
 ];
+
+function formatMs(ms: number): string {
+  return ms < 1000 ? `${ms.toFixed(0)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
 
 function ScoreBadge({ score, size = "sm" }: { score: number; size?: "sm" | "lg" }) {
   const pct = (score * 100).toFixed(1);
@@ -103,10 +92,23 @@ function ScoreBadge({ score, size = "sm" }: { score: number; size?: "sm" | "lg" 
   );
 }
 
+function LatencyBadge({ ms, size = "sm" }: { ms: number; size?: "sm" | "lg" }) {
+  const dim = size === "lg" ? "text-lg px-3 py-1" : "text-xs px-2 py-0.5";
+  const color = ms < 500
+    ? "text-success bg-success/10 border-success/20"
+    : ms < 2000
+    ? "text-warning bg-warning/10 border-warning/20"
+    : "text-danger bg-danger/10 border-danger/20";
+  return (
+    <span className={`font-mono font-medium rounded-full border ${color} ${dim}`}>
+      {formatMs(ms)}
+    </span>
+  );
+}
+
 function DetailRow({ q, idx }: { q: QuestionResult; idx: number }) {
   const [open, setOpen] = useState(false);
   const avgGen = (q.faithfulness + q.answerRelevance + q.contextUtilization) / 3;
-  const avgRet = (q.recallAtK + q.precisionAtK + q.hitRateAtK) / 3;
 
   return (
     <div className="border border-line rounded-2xl overflow-hidden">
@@ -119,7 +121,7 @@ function DetailRow({ q, idx }: { q: QuestionResult; idx: number }) {
           <p className="text-sm truncate leading-snug">{q.question || "(empty question)"}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <ScoreBadge score={avgRet} />
+          <LatencyBadge ms={q.latencyMs} />
           <ScoreBadge score={avgGen} />
           <span className="text-muted text-xs ml-1">{open ? "▲" : "▼"}</span>
         </div>
@@ -129,24 +131,16 @@ function DetailRow({ q, idx }: { q: QuestionResult; idx: number }) {
           {/* Reference */}
           <div>
             <span className="text-xs text-muted block mb-1">Reference Answer</span>
-            <p className="text-text bg-bg-alt rounded-lg px-3 py-2 text-xs leading-relaxed">
+            <p className="text-text bg-bg-alt rounded-lg px-3 py-2 text-xs leading-relaxed max-h-40 overflow-y-auto">
               {q.reference || "(none)"}
             </p>
           </div>
 
           {/* Metric scores per-question */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <div className="bg-bg-alt rounded-lg px-3 py-2">
-              <span className="text-xs text-muted block">Recall@k</span>
-              <ScoreBadge score={q.recallAtK} />
-            </div>
-            <div className="bg-bg-alt rounded-lg px-3 py-2">
-              <span className="text-xs text-muted block">Precision@k</span>
-              <ScoreBadge score={q.precisionAtK} />
-            </div>
-            <div className="bg-bg-alt rounded-lg px-3 py-2">
-              <span className="text-xs text-muted block">Hit Rate@k</span>
-              <ScoreBadge score={q.hitRateAtK} />
+              <span className="text-xs text-muted block">Latency</span>
+              <LatencyBadge ms={q.latencyMs} />
             </div>
             <div className="bg-bg-alt rounded-lg px-3 py-2">
               <span className="text-xs text-muted block">Faithfulness</span>
@@ -165,7 +159,7 @@ function DetailRow({ q, idx }: { q: QuestionResult; idx: number }) {
           {/* Retrieved docs */}
           <div>
             <span className="text-xs text-muted block mb-1">
-              Retrieved Docs (top-{q.retrievedCount}, {q.relevantInTopK} relevant of {q.totalRelevant} total)
+              Retrieved Docs (top-{q.retrievedCount})
             </span>
             <ul className="space-y-1">
               {q.retrievedDocTitles.map((t, i) => (
@@ -251,15 +245,21 @@ export default function BenchmarkDetailPage() {
                     <h3 className="font-semibold text-sm">{m.label}</h3>
                     <p className="text-xs text-muted mt-0.5 italic">{m.question}</p>
                   </div>
-                  <ScoreBadge score={val} size="lg" />
+                  {m.isLatency ? (
+                    <LatencyBadge ms={val} size="lg" />
+                  ) : (
+                    <ScoreBadge score={val} size="lg" />
+                  )}
                 </div>
                 <p className="text-xs text-muted">{m.definition}</p>
-                <div className="mt-3 h-2 bg-bg rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${scoreClass(val)}`}
-                    style={{ width: `${val * 100}%`, background: "currentColor" }}
-                  />
-                </div>
+                {!m.isLatency && (
+                  <div className="mt-3 h-2 bg-bg rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${scoreClass(val)}`}
+                      style={{ width: `${val * 100}%`, background: "currentColor" }}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}

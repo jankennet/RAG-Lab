@@ -3,21 +3,15 @@ export type QuestionResult = {
   question: string;
   reference: string;
   retrievedCount: number;
-  relevantInTopK: number;
-  totalRelevant: number;
-  recallAtK: number;
-  precisionAtK: number;
-  hitRateAtK: number;
   retrievedDocTitles: string[];
+  latencyMs: number;
   faithfulness: number;
   answerRelevance: number;
   contextUtilization: number;
 };
 
 export type BenchmarkMetrics = {
-  recallAtK: number;
-  precisionAtK: number;
-  hitRateAtK: number;
+  latencyMs: number;
   faithfulness: number;
   answerRelevance: number;
   contextUtilization: number;

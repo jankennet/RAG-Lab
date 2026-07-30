@@ -135,13 +135,19 @@ export async function updateDatasetChunks(id: string, documents: OpfsDocument[])
   const docsHandle = await dsDir.getFileHandle("documents.json", { create: true });
   await writeJson(docsHandle, documents);
 
+  // Compute row count: strip trailing ":<index>" segment from sourceKey
+  // e.g. "name:chunk:0" → "name:chunk"  or  "dataset:row1:2" → "dataset:row1"
+  const rowKeys = documents.map((d) => {
+    const lastColon = d.sourceKey.lastIndexOf(":");
+    return lastColon > 0 ? d.sourceKey.slice(0, lastColon) : d.sourceKey;
+  });
+  const uniqueRows = new Set(rowKeys);
+
   const metaHandle = await readFileHandle(dsDir, "meta.json");
   if (metaHandle) {
     const meta = (await readJson(metaHandle)) as OpfsDataset;
     meta.chunkCount = documents.length;
-    meta.rowCount = documents.length > 0
-      ? new Set(documents.map((d) => d.sourceKey.split(":chunk:")[0])).size
-      : 0;
+    meta.rowCount = uniqueRows.size;
     await writeJson(metaHandle, meta);
   }
 
@@ -149,6 +155,7 @@ export async function updateDatasetChunks(id: string, documents: OpfsDocument[])
   const idx = index.findIndex((d) => d.id === id);
   if (idx >= 0) {
     index[idx].chunkCount = documents.length;
+    index[idx].rowCount = uniqueRows.size;
     await saveIndex(index);
   }
 }

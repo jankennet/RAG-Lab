@@ -30,60 +30,6 @@ const runBenchmarkSchema = z.object({
   model: z.string().min(1).default("meta/llama-3.3-70b-instruct"),
 });
 
-// ── Token helpers ──────────────────────────────────────────────
-
-function tokenize(text: string): string[] {
-  return text.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
-}
-
-function countOverlap(text: string, token: string): number {
-  let count = 0, pos = 0;
-  while (pos < text.length) {
-    const idx = text.indexOf(token, pos);
-    if (idx === -1) break;
-    count++;
-    pos = idx + token.length;
-  }
-  return count;
-}
-
-/** Jaccard similarity between two word sets */
-function jaccardSimilarity(a: string, b: string): number {
-  const setA = new Set(tokenize(a));
-  const setB = new Set(tokenize(b));
-  if (setA.size === 0 && setB.size === 0) return 1;
-  const intersection = new Set([...setA].filter((x) => setB.has(x)));
-  const union = new Set([...setA, ...setB]);
-  return intersection.size / union.size;
-}
-
-// ── Server-side keyword search ────────────────────────────────
-
-function searchDocs(
-  documents: Array<{ title: string; content: string; sourceKey: string }>,
-  query: string,
-  topK = 5,
-): Array<{ title: string; content: string; sourceKey: string; score: number }> {
-  const tokens = tokenize(query);
-  if (tokens.length === 0) {
-    return documents.slice(0, topK).map((d) => ({ ...d, score: 0 }));
-  }
-
-  const scored = documents.map((doc) => {
-    const contentLower = doc.content.toLowerCase();
-    const titleLower = (doc.title || "").toLowerCase();
-    let score = 0;
-    for (const token of tokens) {
-      score += countOverlap(titleLower, token) * 3;
-      score += countOverlap(contentLower, token);
-    }
-    return { ...doc, score };
-  });
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK);
-}
-
 // ── LLM evaluation ────────────────────────────────────────────
 
 async function evaluateGeneration(
@@ -160,6 +106,16 @@ export async function GET(request: Request) {
 
 // ── POST: run benchmark ───────────────────────────────────────
 
+/** Deterministic shuffle: use first N docs sorted by sourceKey */
+function pickQuestions(
+  docs: Array<{ sourceKey: string; title: string; content: string }>,
+  limit: number,
+): Array<{ sourceKey: string; title: string; content: string }> {
+  // Sort by sourceKey for determinism — same dataset always picks same questions
+  const sorted = [...docs].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
+  return sorted.slice(0, Math.min(limit, sorted.length));
+}
+
 export async function POST(request: Request) {
   try {
     const guard = applyApiGuard(request, RateLimits.default);
@@ -178,30 +134,17 @@ export async function POST(request: Request) {
       content: d.content,
     }));
 
-    // Pick `limit` random docs as questions
-    const shuffled = [...docs].sort(() => Math.random() - 0.5);
-    const questions = shuffled.slice(0, Math.min(limit, shuffled.length));
+    // Pick `limit` deterministic docs as questions
+    const questions = pickQuestions(docs, limit);
 
     const results: QuestionResult[] = [];
 
     for (const q of questions) {
-      // ── Retrieval eval ──
-      // Ground truth relevant docs: those with content similar to the answer
-      const relevantSet = docs.filter(
-        (d) => d.sourceKey !== q.sourceKey && jaccardSimilarity(d.content, q.content) > 0.2,
-      );
-      const totalRelevant = relevantSet.length;
+      const t0 = performance.now();
 
       // Search excluding the question doc itself
       const corpus = docs.filter((d) => d.sourceKey !== q.sourceKey);
-      const topK = searchDocs(corpus, q.title || q.content.slice(0, 200), 5);
-
-      const relevantSourceKeys = new Set(relevantSet.map((d) => d.sourceKey));
-      const relevantInTopK = topK.filter((d) => relevantSourceKeys.has(d.sourceKey)).length;
-
-      const recallAtK = totalRelevant > 0 ? relevantInTopK / totalRelevant : 0;
-      const precisionAtK = relevantInTopK / Math.max(topK.length, 1);
-      const hitRateAtK = relevantInTopK > 0 ? 1 : 0;
+      const topK = keywordSearch(corpus, q.title || q.content.slice(0, 200), 5);
 
       // ── Generation eval (LLM) ──
       const contextText = topK
@@ -216,16 +159,14 @@ export async function POST(request: Request) {
         model,
       );
 
+      const elapsed = performance.now() - t0;
+
       results.push({
         question: q.title || q.content.slice(0, 200),
-        reference: q.content.slice(0, 300),
+        reference: q.content, // full content, no truncation
         retrievedCount: topK.length,
-        relevantInTopK,
-        totalRelevant,
-        recallAtK,
-        precisionAtK,
-        hitRateAtK,
         retrievedDocTitles: topK.map((d) => d.title || "(untitled)"),
+        latencyMs: elapsed,
         faithfulness: gen.faithfulness,
         answerRelevance: gen.answerRelevance,
         contextUtilization: gen.contextUtilization,
@@ -238,9 +179,7 @@ export async function POST(request: Request) {
       n > 0 ? results.reduce((s, r) => s + fn(r), 0) / n : 0;
 
     const metrics: BenchmarkMetrics = {
-      recallAtK: aggregate((r) => r.recallAtK),
-      precisionAtK: aggregate((r) => r.precisionAtK),
-      hitRateAtK: aggregate((r) => r.hitRateAtK),
+      latencyMs: aggregate((r) => r.latencyMs),
       faithfulness: aggregate((r) => r.faithfulness),
       answerRelevance: aggregate((r) => r.answerRelevance),
       contextUtilization: aggregate((r) => r.contextUtilization),
@@ -269,4 +208,46 @@ export async function POST(request: Request) {
     console.error("[benchmarks] POST error:", error instanceof Error ? error.message : error);
     return serverError();
   }
+}
+
+// ── Keyword search (used internally) ──────────────────────────
+
+function tokenize(text: string): string[] {
+  return text.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
+}
+
+function countOverlap(text: string, token: string): number {
+  let count = 0, pos = 0;
+  while (pos < text.length) {
+    const idx = text.indexOf(token, pos);
+    if (idx === -1) break;
+    count++;
+    pos = idx + token.length;
+  }
+  return count;
+}
+
+function keywordSearch(
+  documents: Array<{ title: string; content: string; sourceKey: string }>,
+  query: string,
+  topK = 5,
+): Array<{ title: string; content: string; sourceKey: string; score: number }> {
+  const tokens = tokenize(query);
+  if (tokens.length === 0) {
+    return documents.slice(0, topK).map((d) => ({ ...d, score: 0 }));
+  }
+
+  const scored = documents.map((doc) => {
+    const contentLower = doc.content.toLowerCase();
+    const titleLower = (doc.title || "").toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+      score += countOverlap(titleLower, token) * 3;
+      score += countOverlap(contentLower, token);
+    }
+    return { ...doc, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, topK);
 }
