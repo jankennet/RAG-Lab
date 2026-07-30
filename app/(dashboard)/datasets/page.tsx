@@ -14,7 +14,7 @@ import {
 import type { OpfsDataset } from "@/client/opfs";
 import DatasetCard from "@/app/(dashboard)/components/DatasetCard";
 
-type SourceType = "huggingface" | "upload" | "url";
+type SourceType = "huggingface" | "upload";
 
 export default function DatasetsPage() {
   const { setActiveDataset, preferences } = useDashboard();
@@ -201,10 +201,6 @@ export default function DatasetsPage() {
       setAddError("Enter a HuggingFace dataset ID");
       return;
     }
-    if (source === "url" && !sourceUrl.trim()) {
-      setAddError("Enter a URL");
-      return;
-    }
     if (source === "upload" && selectedFiles.length === 0) {
       setAddError("Select at least one file to upload");
       return;
@@ -215,28 +211,51 @@ export default function DatasetsPage() {
 
     try {
       if (source === "upload") {
-        // ── Upload: send all files to server for parsing ──
-        const form = new FormData();
-        form.set("datasetName", name.trim());
-        for (const f of selectedFiles) {
-          form.append("files", f);
+        // ── Upload: parse text files client-side, PDFs go to server ──
+        setUploadProgress(`Parsing ${selectedFiles.length} file(s)...`);
+
+        const textFiles = selectedFiles.filter((f) => !f.name.toLowerCase().endsWith(".pdf"));
+        const pdfFiles = selectedFiles.filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+
+        const parsedTextFiles: Array<{ filename: string; content: string }> = [];
+
+        // Parse text files client-side
+        for (const f of textFiles) {
+          const raw = await f.text();
+          let content = raw;
+          // Prettify JSON for better chunking
+          if (f.name.toLowerCase().endsWith(".json")) {
+            try { content = JSON.stringify(JSON.parse(raw), null, 2); } catch {}
+          }
+          parsedTextFiles.push({ filename: f.name, content });
         }
 
-        setUploadProgress(`Uploading ${selectedFiles.length} file(s)...`);
-        const res = await fetch("/api/upload", { method: "POST", body: form });
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(typeof data.error === "string" ? data.error : "Upload failed");
+        // Parse PDFs server-side
+        if (pdfFiles.length > 0) {
+          setUploadProgress(`Uploading ${pdfFiles.length} PDF(s) for parsing...`);
+          const form = new FormData();
+          form.set("datasetName", name.trim());
+          for (const f of pdfFiles) {
+            form.append("files", f);
+          }
+          const res = await fetch("/api/upload", { method: "POST", body: form });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(typeof data.error === "string" ? data.error : "PDF parse failed");
+          }
+          const pdfResult = (data as { files?: Array<{ filename: string; content: string }> }).files ?? [];
+          parsedTextFiles.push(...pdfResult);
         }
 
-        // Merge all parsed files into one content blob
-        const parsedFiles = (data as { files?: Array<{ filename: string; content: string; metadata: Record<string, unknown> }> }).files ?? [];
-        setUploadProgress(`Parsed ${parsedFiles.length} file(s), chunking...`);
+        if (parsedTextFiles.length === 0) {
+          throw new Error("No files could be parsed.");
+        }
+
+        setUploadProgress(`Chunking ${parsedTextFiles.length} file(s)...`);
 
         let allContent = "";
         const mergedMetadata: Record<string, unknown> = { files: [] as string[] };
-        for (const pf of parsedFiles) {
+        for (const pf of parsedTextFiles) {
           allContent += `\n\n=== ${pf.filename} ===\n\n${pf.content}`;
           (mergedMetadata.files as string[]).push(pf.filename);
         }
@@ -244,10 +263,10 @@ export default function DatasetsPage() {
         const chunks = chunkText(allContent.trim(), 1000, 150);
         const docs = makeDocuments(name.trim(), null, name.trim(), chunks, mergedMetadata);
 
-        setUploadProgress(`Saving ${chunks.length} chunks...`);
+        setUploadProgress(`Saving ${chunks.length} chunks to OPFS...`);
         const dataset = await createDataset({ name: name.trim(), source: "upload", sourceUrl: null });
         await updateDatasetChunks(dataset.id, docs);
-        setUploadProgress(`${chunks.length} chunks across ${parsedFiles.length} files`);
+        setUploadProgress(`${chunks.length} chunks across ${parsedTextFiles.length} files`);
       } else if (source === "huggingface") {
         setUploadProgress("Fetching from HuggingFace...");
         const res = await fetch("/api/datasets", {
@@ -275,29 +294,6 @@ export default function DatasetsPage() {
           await updateDatasetChunks(dataset.id, remoteDocs as unknown as Parameters<typeof updateDatasetChunks>[1]);
         }
         setUploadProgress(`${remoteDocs.length} chunks`);
-      } else {
-        setUploadProgress("Fetching URL...");
-        const res = await fetch("/api/datasets", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: name.trim(),
-            source: "url",
-            sourceUrl: sourceUrl.trim(),
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(typeof data.error === "string" ? data.error : "Failed to fetch URL");
-        }
-
-        const urlDocs = (data as { chunks?: Array<Record<string, unknown>> }).chunks ?? [];
-        if (urlDocs.length > 0) {
-          const dataset = await createDataset({ name: name.trim(), source: "url", sourceUrl: sourceUrl.trim() });
-          await updateDatasetChunks(dataset.id, urlDocs as unknown as Parameters<typeof updateDatasetChunks>[1]);
-        }
-        setUploadProgress(`${urlDocs.length} chunks`);
       }
 
       await fetchDatasets();
@@ -356,7 +352,6 @@ export default function DatasetsPage() {
               >
                 <option value="huggingface">HuggingFace</option>
                 <option value="upload">Upload Files</option>
-                <option value="url">URL</option>
               </select>
             </div>
 
@@ -434,21 +429,6 @@ export default function DatasetsPage() {
               </div>
             )}
 
-            {/* ── URL field ── */}
-            {source === "url" && (
-              <div>
-                <label className="block text-sm font-medium text-muted mb-1.5">URL</label>
-                <input
-                  type="url"
-                  value={sourceUrl}
-                  onChange={(e) => setSourceUrl(e.target.value)}
-                  required
-                  className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
-                  placeholder="https://example.com/data.json"
-                />
-              </div>
-            )}
-
             {/* ── Multi-file upload drop zone ── */}
             {source === "upload" && (
               <div>
@@ -489,7 +469,7 @@ export default function DatasetsPage() {
                         Drop files here or click to browse
                       </p>
                       <p className="text-xs text-muted mt-1">
-                        TXT, JSON, CSV, MD, HTML, XML, SQL, PDF · 10 MB per file · 50 MB total
+                        TXT, JSON, CSV, MD, HTML, XML, SQL, PDF · Stored in OPFS (browser storage, limited by disk)
                       </p>
                     </div>
                   )}

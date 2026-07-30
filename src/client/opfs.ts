@@ -1,5 +1,15 @@
 // ── OPFS (Origin Private File System) data layer ──────────
-// Replaces Supabase. All data stored locally in the browser.
+// All data stored locally in the browser.
+// Chunking delegates to the shared strategy-pattern chunker.
+
+import {
+  FixedSizeChunker,
+  RecursiveChunker,
+  StructuredChunker,
+  detectDocumentType,
+  selectChunker,
+  type DocumentType,
+} from "@/server/rag/chunker";
 
 export type OpfsDataset = {
   id: string;
@@ -106,15 +116,12 @@ export async function createDataset(meta: {
   const dir = await dataDir();
   const dsDir = await ensureDir(dir, `dataset_${dataset.id}`);
 
-  // meta.json
   const metaHandle = await dsDir.getFileHandle("meta.json", { create: true });
   await writeJson(metaHandle, dataset);
 
-  // documents.json (empty)
   const docsHandle = await dsDir.getFileHandle("documents.json", { create: true });
   await writeJson(docsHandle, []);
 
-  // Update index
   const index = await loadIndex();
   index.unshift(dataset);
   await saveIndex(index);
@@ -122,16 +129,12 @@ export async function createDataset(meta: {
   return dataset;
 }
 
-export async function updateDatasetChunks(
-  id: string,
-  documents: OpfsDocument[],
-): Promise<void> {
+export async function updateDatasetChunks(id: string, documents: OpfsDocument[]): Promise<void> {
   const dir = await dataDir();
   const dsDir = await ensureDir(dir, `dataset_${id}`);
   const docsHandle = await dsDir.getFileHandle("documents.json", { create: true });
   await writeJson(docsHandle, documents);
 
-  // Update meta
   const metaHandle = await readFileHandle(dsDir, "meta.json");
   if (metaHandle) {
     const meta = (await readJson(metaHandle)) as OpfsDataset;
@@ -142,7 +145,6 @@ export async function updateDatasetChunks(
     await writeJson(metaHandle, meta);
   }
 
-  // Update index
   const index = await loadIndex();
   const idx = index.findIndex((d) => d.id === id);
   if (idx >= 0) {
@@ -175,7 +177,6 @@ export async function deleteDataset(id: string): Promise<void> {
   await saveIndex(index.filter((d) => d.id !== id));
 }
 
-/** Delete ALL datasets and the index. Irreversible. */
 export async function deleteAllDatasets(): Promise<void> {
   const root = await rootDir();
   try {
@@ -183,6 +184,54 @@ export async function deleteAllDatasets(): Promise<void> {
   } catch {
     // Directory may not exist — nothing to delete
   }
+}
+
+// ── Chunking (delegates to shared strategy-pattern chunker) ──
+
+/**
+ * Legacy backward-compat: fixed-size chunk.
+ * Delegates to FixedSizeChunker from the shared module.
+ */
+export function chunkText(text: string, chunkSize = 1000, overlap = 150): string[] {
+  return new FixedSizeChunker().split(text, { chunkSize, chunkOverlap: overlap });
+}
+
+/**
+ * Create chunked documents using the shared strategy-pattern chunker.
+ * Auto-detects structured (JSON) vs unstructured (prose) content.
+ */
+export function makeDocuments(
+  sourceName: string,
+  sourceUrl: string | null,
+  title: string,
+  chunks: string[],
+  metadata: Record<string, unknown> = {},
+): OpfsDocument[] {
+  return chunks.map((chunk, i) => ({
+    id: i,
+    sourceKey: `${sourceName}:chunk:${i}`,
+    sourceName,
+    sourceUrl,
+    title: `${title} — chunk ${i + 1}`,
+    content: chunk,
+    metadata: { ...metadata, chunkIndex: i },
+    chunkIndex: i,
+  }));
+}
+
+/**
+ * Chunk with auto-detection of content type.
+ * Uses RecursiveChunker for prose, StructuredChunker for JSON.
+ */
+export function smartChunkText(
+  text: string,
+  options?: { chunkSize?: number; chunkOverlap?: number; documentType?: DocumentType },
+): string[] {
+  const chunker = selectChunker(options?.documentType, undefined, text);
+  return chunker.split(text, {
+    chunkSize: options?.chunkSize,
+    chunkOverlap: options?.chunkOverlap,
+  });
 }
 
 // ── Keyword Search ─────────────────────────────────────────────
@@ -201,7 +250,6 @@ export async function searchDocuments(
     .split(/\s+/)
     .filter((t) => t.length > 1);
 
-  // Gather all documents from a single dataset or all datasets
   const index = await loadIndex();
   const targets = _datasetId
     ? index.filter((d) => d.id === _datasetId)
@@ -217,16 +265,13 @@ export async function searchDocuments(
     return allDocs.slice(0, topK);
   }
 
-  // Score each document by token match count
   const scored = allDocs.map((doc) => {
     const contentLower = doc.content.toLowerCase();
     const titleLower = (doc.title || "").toLowerCase();
     let score = 0;
     for (const token of queryTokens) {
-      // Title matches weigh 3x
       const titleCount = countOverlap(titleLower, token);
       score += titleCount * 3;
-      // Content matches
       score += countOverlap(contentLower, token);
     }
     return { doc, score };
@@ -247,43 +292,4 @@ function countOverlap(text: string, token: string): number {
     pos = idx + token.length;
   }
   return count;
-}
-
-// ── Import from raw text ───────────────────────────────────────
-
-/**
- * Chunk raw text and store as documents in a dataset.
- */
-export function chunkText(text: string, chunkSize = 1000, overlap = 150): string[] {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= chunkSize) return [normalized];
-
-  const chunks: string[] = [];
-  let start = 0;
-  while (start < normalized.length) {
-    const end = Math.min(normalized.length, start + chunkSize);
-    chunks.push(normalized.slice(start, end).trim());
-    if (end >= normalized.length) break;
-    start = Math.max(0, end - overlap);
-  }
-  return chunks.filter(Boolean);
-}
-
-export function makeDocuments(
-  sourceName: string,
-  sourceUrl: string | null,
-  title: string,
-  chunks: string[],
-  metadata: Record<string, unknown> = {},
-): OpfsDocument[] {
-  return chunks.map((chunk, i) => ({
-    id: i,
-    sourceKey: `${sourceName}:chunk:${i}`,
-    sourceName,
-    sourceUrl,
-    title: `${title} — chunk ${i + 1}`,
-    content: chunk,
-    metadata: { ...metadata, chunkIndex: i },
-    chunkIndex: i,
-  }));
 }

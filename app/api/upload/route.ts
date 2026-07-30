@@ -3,19 +3,13 @@ import { applyApiGuard, serverError, badRequest, RateLimits } from "@/server/aut
 
 export const runtime = "nodejs";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50 MB total across all files
+/** Maximum per-file size sent to server. PDF parsing is memory-intensive server-side. */
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+const MAX_TOTAL_SIZE = 2000 * 1024 * 1024; // 2 GB total
 
-const ALLOWED_TYPES: Record<string, string> = {
-  ".txt": "text/plain",
-  ".md": "text/markdown",
-  ".json": "application/json",
-  ".csv": "text/csv",
-  ".html": "text/html",
-  ".htm": "text/html",
-  ".xml": "application/xml",
-  ".log": "text/plain",
-  ".sql": "text/sql",
+/** Text-only file types parsed client-side. PDF sent to server. */
+const SERVER_PARSED_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
 };
 
 type ParsedFile = {
@@ -40,47 +34,19 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
 async function parseOneFile(buffer: Buffer, filename: string): Promise<ParsedFile> {
   const ext = filename.substring(filename.lastIndexOf(".")).toLowerCase();
 
-  // PDF: binary extraction
-  if (ext === ".pdf") {
-    if (buffer.length > MAX_FILE_SIZE) {
-      throw new Error(`File too large: ${filename} (max ${MAX_FILE_SIZE / 1024 / 1024} MB)`);
-    }
-    const content = await extractPdfText(buffer);
-    const metadata: Record<string, unknown> = { filename, fileType: ext };
-
-    if (content.trim().length === 0) {
-      throw new Error(`PDF "${filename}" produced no extractable text. It may be image-only.`);
-    }
-
-    return { filename, content, metadata };
-  }
-
-  // All other text-based types
-  const mimeType = ALLOWED_TYPES[ext];
-  if (!mimeType) {
-    throw new Error(`Unsupported file type: ${ext}. Allowed: ${Object.keys(ALLOWED_TYPES).join(", ")}, .pdf`);
+  if (ext !== ".pdf") {
+    throw new Error(`Text files are parsed in browser. Only PDFs need server. Remove "${filename}" from upload.`);
   }
 
   if (buffer.length > MAX_FILE_SIZE) {
-    throw new Error(`File too large: ${filename} (max ${MAX_FILE_SIZE / 1024 / 1024} MB)`);
+    throw new Error(`PDF too large: ${filename} (max ${MAX_FILE_SIZE / 1024 / 1024} MB). Try a smaller file.`);
   }
 
-  const raw = buffer.toString("utf-8");
-  const metadata: Record<string, string> = { filename, fileType: ext };
+  const content = await extractPdfText(buffer);
+  const metadata: Record<string, unknown> = { filename, fileType: ext };
 
-  let content: string;
-
-  if (ext === ".json") {
-    const parsed = JSON.parse(raw);
-    metadata.jsonKeys = Array.isArray(parsed) ? "array" : Object.keys(parsed).join(",");
-    metadata.rowCount = String(Array.isArray(parsed) ? parsed.length : 1);
-    content = JSON.stringify(parsed, null, 2);
-  } else if (ext === ".csv") {
-    const lines = raw.split("\n").filter(Boolean);
-    metadata.rowCount = String(Math.max(0, lines.length - 1));
-    content = raw;
-  } else {
-    content = raw;
+  if (content.trim().length === 0) {
+    throw new Error(`PDF "${filename}" produced no extractable text. It may be image-only (scanned). Try OCR tools first.`);
   }
 
   return { filename, content, metadata };

@@ -131,7 +131,7 @@ export default function DatasetDetailPage() {
           ) : (
             <div>
               {chunks.map((source, idx) => (
-                <SourceCard key={source.id} source={source} index={idx} />
+                <SourceCard key={source.sourceKey} source={source} index={idx} />
               ))}
             </div>
           )}

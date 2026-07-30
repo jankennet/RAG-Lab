@@ -15,7 +15,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Multi-Source Agentic RAG Platform",
-  description: "TypeScript Vercel starter for LangGraph.js, NVIDIA NIM, Supabase pgvector, and Hugging Face Datasets."
+  description: "Local-first RAG platform: LangGraph.js, NVIDIA NIM, Hugging Face Datasets, OPFS storage."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -8,15 +8,14 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "ingest": "tsx scripts/ingest-hf.ts",
-    "benchmark": "tsx scripts/benchmark-hf.ts"
+    "ingest": "tsx scripts/ingest.ts",
+    "benchmark": "tsx scripts/benchmark.ts"
   },
   "dependencies": {
     "@langchain/anthropic": "^1.5.2",
     "@langchain/core": "^1.2.3",
     "@langchain/langgraph": "^0.2.57",
     "@langchain/openai": "^0.5.12",
-    "@supabase/supabase-js": "^2.57.0",
     "dotenv": "^17.2.1",
     "next": "^15.4.0",
     "pdf-parse": "^2.4.5",
