@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
-import { getSessionApiKeys } from "@/server/auth/session";
 import { applyApiGuard, serverError, badRequest, RateLimits } from "@/server/auth/guard";
 import type { LlmProvider } from "@/shared/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Curated known models per provider — used as fallback when no API key
-// or for Anthropic (no public list-models endpoint).
 const CURATED_MODELS: Record<LlmProvider, string[]> = {
   nvidia: [
     "meta/llama-3.3-70b-instruct",
@@ -34,11 +31,7 @@ interface OpenAiModelEntry {
   id: string;
 }
 
-interface OpenAiModelsResponse {
-  data?: OpenAiModelEntry[];
-}
-
-async function fetchOpenAiCompatibleModels(
+async function fetchModelsFromEndpoint(
   endpoint: string,
   apiKey: string,
   filter: (id: string) => boolean = () => true,
@@ -48,7 +41,7 @@ async function fetchOpenAiCompatibleModels(
       headers: { Authorization: `Bearer ${apiKey}` },
     });
     if (!response.ok) return [];
-    const payload = (await response.json()) as OpenAiModelsResponse;
+    const payload = (await response.json()) as { data?: OpenAiModelEntry[] };
     return (payload.data ?? []).map((m) => m.id).filter(filter).sort();
   } catch {
     return [];
@@ -56,7 +49,7 @@ async function fetchOpenAiCompatibleModels(
 }
 
 async function fetchNvidiaModels(apiKey: string): Promise<string[]> {
-  return fetchOpenAiCompatibleModels(
+  return fetchModelsFromEndpoint(
     "https://integrate.api.nvidia.com/v1/models",
     apiKey,
     (id) => !id.includes("embed") && !id.includes("rerank"),
@@ -64,31 +57,11 @@ async function fetchNvidiaModels(apiKey: string): Promise<string[]> {
 }
 
 async function fetchOpenAiModels(apiKey: string): Promise<string[]> {
-  return fetchOpenAiCompatibleModels(
+  return fetchModelsFromEndpoint(
     "https://api.openai.com/v1/models",
     apiKey,
     (id) => id.startsWith("gpt-") || id.startsWith("o1") || id.startsWith("o3"),
   );
-}
-
-/**
- * Resolve an API key for the given provider. Checks in order:
- * 1. Authorization header (Bearer token) — passed by client from localStorage
- * 2. Server session cookie
- */
-async function resolveApiKey(request: Request, provider: LlmProvider): Promise<string | null> {
-  // 1. Authorization header
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    return authHeader.slice(7);
-  }
-
-  // 2. Session cookie
-  const sessionKeys = await getSessionApiKeys();
-  const entry = sessionKeys[provider];
-  if (entry?.key) return entry.key;
-
-  return null;
 }
 
 export async function GET(request: Request) {
@@ -103,7 +76,9 @@ export async function GET(request: Request) {
       return badRequest("Invalid or missing ?provider= parameter");
     }
 
-    const apiKey = await resolveApiKey(request, provider);
+    // Use API key from Authorization header (sent by client from localStorage)
+    const authHeader = request.headers.get("Authorization");
+    const apiKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
     let models: string[] = [];
     let fetched = false;
@@ -117,13 +92,11 @@ export async function GET(request: Request) {
           models = await fetchOpenAiModels(apiKey);
           break;
         case "anthropic":
-          // Anthropic has no public list-models endpoint
           break;
       }
       if (models.length > 0) fetched = true;
     }
 
-    // Fall back to curated list when fetch fails, no key, or Anthropic
     if (models.length === 0) {
       models = CURATED_MODELS[provider];
     }

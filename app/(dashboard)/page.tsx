@@ -95,12 +95,7 @@ export default function ChatPage() {
 
         const response = await fetch("/api/chat", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(process.env.NEXT_PUBLIC_AUTH_TOKEN
-              ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_AUTH_TOKEN}` }
-              : {}),
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question: userMessage.content,
             topK: preferences.topK ?? 4,

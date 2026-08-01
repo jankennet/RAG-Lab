@@ -37,7 +37,7 @@ function formatMs(ms: number): string {
 }
 
 export default function BenchmarksPage() {
-  const { preferences } = useDashboard();
+  const { preferences, apiKeys } = useDashboard();
   const [runs, setRuns] = useState<BenchmarkRun[]>([]);
   const [datasets, setDatasets] = useState<OpfsDataset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,6 +130,7 @@ export default function BenchmarksPage() {
           documents: docs,
           provider: preferences.provider,
           model: preferences.model,
+          apiKey: apiKeys[preferences.provider],
         }),
       });
 

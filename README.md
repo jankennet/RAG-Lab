@@ -1,58 +1,46 @@
 # Multi-Source Agentic RAG Platform
 
-TypeScript starter for a Vercel-hosted agentic RAG system.
+Local-first RAG system. Data stays in your browser (OPFS). API keys in localStorage. No server DB.
 
-Stack:
+**Stack:**
 - Orchestration: LangGraph.js
-- Inference: NVIDIA NIM
-- Retrieval: Supabase + pgvector
-- Benchmarking: Hugging Face Datasets
+- Inference: NVIDIA NIM / OpenAI / Anthropic
+- Storage: OPFS (Origin Private File System)
+- Chunking: Strategy-pattern chunker (fixed, recursive, structured)
 - Validation: Zod
 
 ## What is included
 
-- `app/` Vercel-ready Next.js App Router demo
-- `app/api/chat/route.ts` RAG query route
-- `scripts/ingest-hf.ts` offline ingestion from Hugging Face Datasets into Supabase
-- `scripts/benchmark-hf.ts` benchmark runner over Hugging Face Datasets rows
-- `supabase/schema.sql` table, vector index, and similarity function
+- `app/` Next.js App Router dashboard
+- `app/api/chat/` RAG query endpoint
+- `app/api/session/` API key validation
+- `app/api/datasets/` Hugging Face dataset import
+- `app/api/upload/` PDF parsing
+- `app/api/benchmarks/` RAG quality evaluation
+- `app/api/models/` Model listing
+- `scripts/ingest.ts` CLI dataset ingestion
+- `scripts/benchmark.ts` CLI benchmark runner
+- `python-service/` Optional Python microservice for vector retrieval
 
 ## Setup
 
-1. Install dependencies.
-2. Copy `.env.example` to `.env.local` and fill Supabase plus NIM values.
-3. Run `supabase/schema.sql` in your Supabase SQL editor.
-4. Ingest dataset rows with `npm run ingest`.
-5. Start app with `npm run dev`.
+1. `npm install`
+2. `npm run dev`
+3. Open app. Go to Settings → add API key(s).
 
-## Environment
+## CLI Ingestion
 
-Required server variables:
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `NIM_BASE_URL`
-- `NIM_API_KEY`
-- `NIM_CHAT_MODEL`
-- `NIM_EMBEDDING_MODEL`
-- `NIM_EMBEDDING_DIMENSION`
+```bash
+# From HuggingFace
+tsx scripts/ingest.ts --url https://huggingface.co/datasets/org/name
 
-Dataset variables:
-- `HF_DATASET_NAME`
-- `HF_DATASET_CONFIG`
-- `HF_DATASET_SPLIT`
-- `HF_DATASET_LIMIT`
-- `HF_INGEST_TITLE_FIELD`
-- `HF_INGEST_CONTENT_FIELD`
-- `HF_INGEST_ID_FIELD`
-- `HF_INGEST_URL_FIELD`
-- `HF_INGEST_METADATA_FIELDS`
-
-Benchmark variables:
-- `HF_BENCHMARK_QUESTION_FIELD`
-- `HF_BENCHMARK_REFERENCE_FIELD`
-- `HF_BENCHMARK_LIMIT`
+# From local file
+tsx scripts/ingest.ts --file ./data.csv --content-field text --title-field title
+```
 
 ## Notes
 
-- `supabase/schema.sql` uses `vector(1024)`. Keep that in sync with embedding model output size.
-- Hugging Face ingestion uses datasets-server rows API, so public datasets with split/config access work best.
+- All data stored in OPFS (browser storage). No server-side persistence.
+- API keys stored in localStorage, sent to API per-request.
+- PDFs parsed server-side via pdf-parse. All other files parsed client-side.
+- Optional Python microservice for vector search (see `python-service/`).

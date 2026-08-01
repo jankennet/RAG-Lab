@@ -27,7 +27,6 @@ type DashboardContextValue = {
   setTopP: (topP: number) => void;
   setMaxTokens: (maxTokens: number) => void;
   submitApiKey: (provider: LlmProvider, key: string) => Promise<boolean>;
-  fetchApiKeyStatus: () => Promise<void>;
   setActiveDataset: (datasetId: string) => void;
   hydrate: () => void;
   nukeEverything: () => Promise<void>;
@@ -39,16 +38,6 @@ export function useDashboard(): DashboardContextValue {
   const ctx = useContext(DashboardContext);
   if (!ctx) throw new Error("useDashboard must be inside DashboardProvider");
   return ctx;
-}
-
-const AUTH_TOKEN = process.env.NEXT_PUBLIC_AUTH_TOKEN ?? "";
-
-function apiHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (AUTH_TOKEN) {
-    headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
-  }
-  return headers;
 }
 
 export default function DashboardProvider({ children }: { children: ReactNode }) {
@@ -73,10 +62,15 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     }
   }, [preferences, mounted]);
 
-  // Check session status on mount
+  // Derive key status from localStorage on mount
   useEffect(() => {
     if (mounted) {
-      fetchApiKeyStatus();
+      const local = loadApiKeys();
+      const status: ApiKeyStatus = {};
+      for (const p of ["nvidia", "openai", "anthropic"] as LlmProvider[]) {
+        status[p] = { hasKey: (local[p]?.length ?? 0) > 0, validated: false };
+      }
+      setApiKeyStatus(status);
     }
   }, [mounted]);
 
@@ -84,7 +78,6 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     if (typeof window !== "undefined") {
       setPreferences(loadDashboardPreferences());
       setApiKeys(loadApiKeys());
-      fetchApiKeyStatus();
     }
   }, []);
 
@@ -115,50 +108,8 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     setPreferences((prev) => ({ ...prev, maxTokens }));
   }, []);
 
-  const fetchApiKeyStatus = useCallback(async (): Promise<void> => {
-    // Derive status from localStorage keys
-    const local = loadApiKeys();
-    const status: ApiKeyStatus = {};
-    for (const p of ["nvidia", "openai", "anthropic"] as LlmProvider[]) {
-      status[p] = {
-        hasKey: (local[p]?.length ?? 0) > 0,
-        validated: false, // server-side validation only
-      };
-    }
-    setApiKeyStatus(status);
-
-    // Also try server session for validation status
-    try {
-      const response = await fetch("/api/session", {
-        method: "GET",
-        headers: apiHeaders(),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        // Merge server validation state — but only if client has a key.
-        // Server status alone is stale after a client-side wipe.
-        const localKeys = loadApiKeys();
-        setApiKeyStatus((prev) => {
-          const next = { ...prev };
-          if (data?.status) {
-            for (const p of Object.keys(data.status)) {
-              const hasLocalKey = (localKeys[p as LlmProvider]?.length ?? 0) > 0;
-              if (hasLocalKey) {
-                next[p] = { ...next[p], ...data.status[p] };
-              }
-            }
-          }
-          return next;
-        });
-      }
-    } catch {
-      // Session not available — ignore, local status is enough
-    }
-  }, []);
-
-  /** Submit an API key. Saved to localStorage immediately. Also sent to server for cookie session. */
+  /** Submit API key: save to localStorage, then validate via server. */
   const submitApiKey = useCallback(async (provider: LlmProvider, key: string): Promise<boolean> => {
-    // Save locally first — this always works
     saveApiKey(provider, key);
     setApiKeys(loadApiKeys());
     setApiKeyStatus((prev) => ({
@@ -166,12 +117,11 @@ export default function DashboardProvider({ children }: { children: ReactNode })
       [provider]: { hasKey: true, validated: false },
     }));
 
-    // Also POST to server for validation + session cookie
     let valid = false;
     try {
       const response = await fetch("/api/session", {
         method: "POST",
-        headers: apiHeaders(),
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, key }),
       });
       const data = await response.json();
@@ -193,26 +143,16 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     setPreferences((prev) => ({ ...prev, activeDatasetId: datasetId }));
   }, []);
 
-  /** Delete everything: server cookie, localStorage, OPFS datasets. Resets state. */
+  /** Delete everything: localStorage + OPFS datasets. Resets state. */
   const nukeEverything = useCallback(async (): Promise<void> => {
-    // 1. Delete server session cookie
-    try {
-      await fetch("/api/session", { method: "DELETE", headers: apiHeaders() });
-    } catch {
-      // Server unreachable — continue with local wipe
-    }
-
-    // 2. Wipe OPFS datasets
     try {
       await deleteAllDatasets();
     } catch {
       // OPFS may not be available
     }
 
-    // 3. Clear localStorage
     clearAllLocalData();
 
-    // 4. Reset state to defaults
     setPreferences(defaultDashboardPreferences);
     setApiKeys({});
     setApiKeyStatus({});
@@ -231,7 +171,6 @@ export default function DashboardProvider({ children }: { children: ReactNode })
         setTopP,
         setMaxTokens,
         submitApiKey,
-        fetchApiKeyStatus,
         setActiveDataset,
         hydrate,
         nukeEverything,

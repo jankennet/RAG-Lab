@@ -1,11 +1,6 @@
-/**
- * Client for Python RAG microservice (FastAPI).
- * Orchestration layer → Python intelligence layer bridge.
- */
-
 import type { RagDocument } from "@/shared/types";
 
-const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL ?? "http://127.0.0.1:8001";
+const RAG_SERVICE_URL = "http://127.0.0.1:8001";
 
 export type RetrievedDoc = {
   source_key: string;
@@ -37,10 +32,6 @@ export type IngestResponse = {
   }>;
 };
 
-/**
- * Query the Python service for vector retrieval.
- * Falls back to null if service unavailable.
- */
 export async function retrieveFromPythonService(
   query: string,
   datasetDir?: string,
@@ -73,9 +64,6 @@ export async function retrieveFromPythonService(
   }
 }
 
-/**
- * Ingest CSV content via Python service — returns semantic chunks.
- */
 export async function ingestViaPythonService(
   csvContent: string,
   sourceName?: string,
@@ -85,7 +73,7 @@ export async function ingestViaPythonService(
     const res = await fetch(`${RAG_SERVICE_URL}/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(120_000), // ingestion can be slow
+      signal: AbortSignal.timeout(120_000),
       body: JSON.stringify({
         csv_content: csvContent,
         source_name: sourceName,
@@ -106,9 +94,6 @@ export async function ingestViaPythonService(
   }
 }
 
-/**
- * Convert Python service results to RagDocument format.
- */
 export function toRagDocuments(results: RetrievedDoc[]): RagDocument[] {
   return results.map((doc, i) => ({
     id: i,
@@ -123,9 +108,6 @@ export function toRagDocuments(results: RetrievedDoc[]): RagDocument[] {
   }));
 }
 
-/**
- * Check if Python service is alive.
- */
 export async function healthCheck(): Promise<boolean> {
   try {
     const res = await fetch(`${RAG_SERVICE_URL}/health`, {

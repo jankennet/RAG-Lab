@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
-import { getSessionApiKeys } from "@/server/auth/session";
 import { callLlm } from "@/server/rag/providers";
 import { getRuns } from "@/server/benchmarks/store";
 import type { BenchmarkRun, BenchmarkMetrics, QuestionResult } from "@/server/benchmarks/store";
@@ -28,6 +27,7 @@ const runBenchmarkSchema = z.object({
   documents: z.array(documentSchema).min(1),
   provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
   model: z.string().min(1).default("meta/llama-3.3-70b-instruct"),
+  apiKey: z.string().optional(),
 });
 
 // ── LLM evaluation ────────────────────────────────────────────
@@ -124,7 +124,8 @@ export async function POST(request: Request) {
     const body = runBenchmarkSchema.parse(await request.json());
     const { datasetId, datasetName, limit, documents, provider, model } = body;
 
-    const apiKeys = await getSessionApiKeys();
+    const apiKeys: Record<string, { key: string }> = {};
+    if (body.apiKey) apiKeys[body.provider] = { key: body.apiKey };
 
     // Normalize documents
     const docs = documents.map((d, i) => ({

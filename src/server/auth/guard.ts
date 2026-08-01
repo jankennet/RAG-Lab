@@ -2,53 +2,13 @@ import { NextResponse } from "next/server";
 import { rateLimit, getRateLimitKey } from "@/server/middleware/rate-limit";
 
 /**
- * Check if the request is authorized.
- * Supports bearer tokens via AUTH_TOKEN env var.
- * If AUTH_TOKEN is not set, the API is open (print a warning).
- */
-export function checkAuth(request: Request): { authorized: boolean; response?: NextResponse } {
-  const authToken = process.env.AUTH_TOKEN;
-  if (!authToken) {
-    // No auth configured — API open. Print warning once per process.
-    if (!(globalThis as Record<string, unknown>).__authWarned) {
-      console.warn("[auth] AUTH_TOKEN not set — API routes are public.");
-      (globalThis as Record<string, unknown>).__authWarned = true;
-    }
-    return { authorized: true };
-  }
-
-  const header = request.headers.get("authorization");
-  if (!header || !header.startsWith("Bearer ")) {
-    return {
-      authorized: false,
-      response: NextResponse.json({ error: "Missing authorization header" }, { status: 401 }),
-    };
-  }
-
-  const token = header.slice(7);
-  if (token !== authToken) {
-    return {
-      authorized: false,
-      response: NextResponse.json({ error: "Invalid authorization token" }, { status: 401 }),
-    };
-  }
-
-  return { authorized: true };
-}
-
-/**
- * Apply rate limiting and auth check for an API route.
+ * Apply rate limiting for an API route.
  * Returns a NextResponse error when the request should be blocked.
  */
 export function applyApiGuard(
   request: Request,
   rateLimitConfig: { limit: number; windowMs: number },
 ): NextResponse | null {
-  // Auth check
-  const auth = checkAuth(request);
-  if (!auth.authorized && auth.response) return auth.response;
-
-  // Rate limit
   const key = getRateLimitKey(request);
   const rl = rateLimit(key, rateLimitConfig.limit, rateLimitConfig.windowMs);
   if (!rl.allowed) {
@@ -58,7 +18,6 @@ export function applyApiGuard(
     );
   }
 
-  // No error — allow
   return null;
 }
 

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatAnswerSourceList, runRagGraph } from "@/server/rag/graph";
-import { getSessionApiKeys } from "@/server/auth/session";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
 import { retrieveFromPythonService, toRagDocuments } from "@/server/rag/retrieval-client";
 import type { LlmProvider, RagDocument } from "@/shared/types";
@@ -41,30 +40,25 @@ export async function POST(request: Request) {
 
     const payload = chatRequestSchema.parse(await request.json());
 
-    // Read API keys from encrypted httpOnly cookie first
-    const apiKeys = await getSessionApiKeys();
-
-    // Fallback: use apiKey from request body if cookie has none for this provider
-    if (!apiKeys[payload.provider]?.key && payload.apiKey) {
+    // Build API key store from request body
+    const apiKeys: Partial<Record<LlmProvider, { key: string; validated: boolean }>> = {};
+    if (payload.apiKey) {
       apiKeys[payload.provider] = { key: payload.apiKey, validated: false };
     }
 
-    // Ensure the requested provider has a key
-    const entry = apiKeys[payload.provider];
-    if (!entry?.key) {
+    if (!apiKeys[payload.provider]?.key) {
       return NextResponse.json(
         { error: `No API key configured for ${payload.provider}. Set it in Settings.` },
         { status: 400 },
       );
     }
 
-    // ── Server-side retrieval (Python microservice) ──────────────
     let documents: RagDocument[] = [];
 
     // Try Python service first (vector search)
     const serviceResult = await retrieveFromPythonService(
       payload.question,
-      payload.datasetId ? undefined : undefined, // could pass dataset dir if known
+      undefined,
       undefined,
       payload.topK,
     );

@@ -2,11 +2,11 @@
 Intelligence/Retrieval Layer — Python FastAPI microservice.
 
 Endpoints:
-  POST /ingest/csv    — Ingest CSV file, produce semantic chunks + embeddings
-  POST /retrieve      — Vector search across ingested datasets
-  GET  /health        — Health check
+  POST /ingest    — Ingest CSV file, produce semantic chunks + embeddings
+  POST /retrieve  — Vector search across ingested datasets
+  GET  /health    — Health check
 
-Architecture aligns with:
+Architecture:
   TS (orchestration) → Python (retrieval) → NIM (embeddings)
 """
 
@@ -33,7 +33,6 @@ app = FastAPI(
 
 # ── Config ──────────────────────────────────────────────────────────────
 
-NIM_API_KEY = os.environ.get("NIM_API_KEY", "")
 DATA_DIR = Path(os.environ.get("RAG_DATA_DIR", str(Path.cwd() / "data" / "datasets")))
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nvidia/nv-embedqa-e5-v5")
 EMBED_DIM = int(os.environ.get("EMBED_DIM", "1024"))
@@ -45,11 +44,12 @@ _store = VectorStore()
 # ── Models ───────────────────────────────────────────────────────────────
 
 class IngestRequest(BaseModel):
-    csv_content: str | None = None  # Base64-encoded or raw CSV text
-    file_path: str | None = None  # Server-side file path
+    csv_content: str | None = None
+    file_path: str | None = None
     source_name: str | None = None
     max_rows: int | None = 5000
     generate_summaries: bool = True
+    api_key: str = ""
 
 
 class IngestResponse(BaseModel):
@@ -64,9 +64,10 @@ class IngestResponse(BaseModel):
 class RetrieveRequest(BaseModel):
     query: str
     top_k: int = 10
-    dataset_dir: str | None = None  # Path to specific dataset dir
-    chunks_data: list[dict[str, Any]] | None = None  # Inline chunks (from Python ingest)
+    dataset_dir: str | None = None
+    chunks_data: list[dict[str, Any]] | None = None
     use_keyword_fallback: bool = True
+    api_key: str = ""
 
 
 class RetrievedDoc(BaseModel):
@@ -85,7 +86,6 @@ class RetrieveResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    api_key_configured: bool
     data_dir_exists: bool
     loaded_chunks: int
 
@@ -96,7 +96,6 @@ class HealthResponse(BaseModel):
 async def health():
     return HealthResponse(
         status="ok",
-        api_key_configured=bool(NIM_API_KEY),
         data_dir_exists=DATA_DIR.exists(),
         loaded_chunks=len(_store.chunks),
     )
@@ -105,13 +104,11 @@ async def health():
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest):
     """Ingest CSV → semantic chunks → embeddings → return chunks with vectors."""
-    if not NIM_API_KEY:
-        raise HTTPException(400, "NIM_API_KEY not configured on server")
+    if not req.api_key:
+        raise HTTPException(400, "api_key required")
 
-    # Get CSV content
     csv_path = req.file_path
     if req.csv_content:
-        # Write to temp file
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         tmp.write(req.csv_content)
         tmp.close()
@@ -121,7 +118,6 @@ async def ingest(req: IngestRequest):
         raise HTTPException(400, "Provide csv_content or valid file_path")
 
     try:
-        # 1. Process CSV into semantic chunks
         dataset = process_csv(
             csv_path=csv_path,
             source_name=req.source_name,
@@ -129,18 +125,15 @@ async def ingest(req: IngestRequest):
             generate_summaries=req.generate_summaries,
         )
 
-        # 2. Embed all chunks
         texts = [c.content for c in dataset.chunks]
-        embeddings = await embed_batch(texts, NIM_API_KEY, EMBED_MODEL)
+        embeddings = await embed_batch(texts, req.api_key, EMBED_MODEL)
 
-        # 3. Attach embeddings to chunks
         chunk_dicts: list[dict[str, Any]] = []
         for i, chunk in enumerate(dataset.chunks):
             d = chunk_to_dict(chunk)
             d["embedding"] = embeddings[i] if i < len(embeddings) else []
             chunk_dicts.append(d)
 
-        # 4. Save to disk (TS-compatible format)
         safe_name = dataset.name.replace(" ", "_").replace("/", "_")[:64]
         out_dir = DATA_DIR / safe_name
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -189,24 +182,16 @@ async def ingest(req: IngestRequest):
     except Exception as e:
         raise HTTPException(500, f"Ingestion failed: {e}")
     finally:
-        # Clean up temp file
         if req.csv_content and csv_path:
             Path(csv_path).unlink(missing_ok=True)
 
 
 @app.post("/retrieve", response_model=RetrieveResponse)
 async def retrieve(req: RetrieveRequest):
-    """Vector search across dataset chunks.
-
-    Supports:
-    - Loading from a server-side dataset directory
-    - Loading inline chunks (from a prior /ingest call)
-    - Fallback keyword search when no embeddings
-    """
+    """Vector search across dataset chunks."""
     if not req.dataset_dir and not req.chunks_data:
         raise HTTPException(400, "Provide dataset_dir or chunks_data")
 
-    # Load chunks into store
     total_chunks = 0
     if req.dataset_dir:
         try:
@@ -220,19 +205,16 @@ async def retrieve(req: RetrieveRequest):
     if total_chunks == 0:
         return RetrieveResponse(results=[], total_chunks_searched=0)
 
-    # Embed query
-    if NIM_API_KEY and _store.embeddings is not None and len(_store.embeddings) > 0:
+    if req.api_key and _store.embeddings is not None and len(_store.embeddings) > 0:
         try:
-            q_emb = await embed_query(req.query, NIM_API_KEY, EMBED_MODEL)
+            q_emb = await embed_query(req.query, req.api_key, EMBED_MODEL)
             results = _store.search(q_emb, top_k=req.top_k)
         except Exception:
             if not req.use_keyword_fallback:
                 raise
-            # Fallback to keyword
             stub_chunks = _store.chunks
             results = keyword_search(stub_chunks, req.query, top_k=req.top_k)
     else:
-        # No embeddings — keyword search
         if not req.use_keyword_fallback:
             return RetrieveResponse(results=[], total_chunks_searched=total_chunks)
         results = keyword_search(_store.chunks, req.query, top_k=req.top_k)
@@ -252,8 +234,6 @@ async def retrieve(req: RetrieveRequest):
         total_chunks_searched=total_chunks,
     )
 
-
-# ── Main ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn
