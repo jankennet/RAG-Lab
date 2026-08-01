@@ -1,4 +1,4 @@
-# Multi-Source Agentic RAG Platform
+# RAG LAB
 
 Local-first RAG system. Data stays in your browser (OPFS). API keys in localStorage. No server DB.
 
