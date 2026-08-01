@@ -7,7 +7,7 @@
 
 import { createChunks, selectChunker, type DocumentType } from "@/server/rag/chunker";
 import type { IngestedRow } from "@/shared/types";
-import { detectSource } from "./detect";
+import { detectSource, detectFileType, BINARY_EXTS } from "./detect";
 import { download, downloadHfRows, type DownloadResult } from "./download";
 import { embedBatch } from "./embed";
 import { parseContent, type FieldHints } from "./parse";
@@ -40,6 +40,69 @@ function pickString(row: Record<string, unknown>, field: string): string {
   return String(v);
 }
 
+/**
+ * Extract text from binary files (DOCX, XLSX, PDF, images).
+ * Uses mammoth/xlsx for office docs, delegates PDF/images to Python OCR service.
+ */
+async function extractBinaryFile(filePath: string): Promise<string> {
+  const { readFileSync } = await import("fs");
+  const ext = filePath.toLowerCase().substring(filePath.lastIndexOf("."));
+  const buffer = readFileSync(filePath);
+
+  try {
+    // DOCX → mammoth
+    if (ext === ".docx") {
+      const mammoth = await import("mammoth");
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value;
+    }
+
+    // XLSX → xlsx library
+    if (ext === ".xlsx" || ext === ".xls") {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.read(buffer, { type: "buffer" });
+      const parts: string[] = [];
+      for (const name of wb.SheetNames) {
+        const ws = wb.Sheets[name];
+        const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+        if (csv.trim()) parts.push(`Sheet: ${name}\n${csv}`);
+      }
+      return parts.join("\n\n");
+    }
+
+    // PDF / images → Python OCR service
+    if (ext === ".pdf" || [".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"].includes(ext)) {
+      const { writeFileSync, mkdtempSync } = await import("fs");
+      const { join } = await import("path");
+      const { tmpdir } = await import("os");
+      const dir = mkdtempSync(join(tmpdir(), "rag-ingest-"));
+      const tmpPath = join(dir, filePath.split("/").pop() || "file");
+      writeFileSync(tmpPath, buffer);
+
+      try {
+        const res = await fetch("http://127.0.0.1:8001/extract-text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(120_000),
+          body: JSON.stringify({ file_path: tmpPath, ocr_lang: "eng" }),
+        });
+        if (!res.ok) throw new Error(`Python service returned ${res.status}`);
+        const data = (await res.json()) as { text: string };
+        return data.text;
+      } catch (err) {
+        throw new Error(
+          `Failed to extract "${filePath}". Python OCR service unavailable. ` +
+          `Run: npm run rag-service\n  ${(err as Error).message}`
+        );
+      }
+    }
+  } catch (err) {
+    throw new Error(`Failed to extract binary file "${filePath}": ${(err as Error).message}`);
+  }
+
+  throw new Error(`Unsupported binary format: ${ext}`);
+}
+
 async function fetchRows(
   url: string,
   filePath: string | undefined,
@@ -47,9 +110,18 @@ async function fetchRows(
 ): Promise<{ rows: Record<string, unknown>[]; fieldHints: FieldHints }> {
   // Local file takes precedence
   if (filePath) {
+    const ext = filePath.toLowerCase().substring(filePath.lastIndexOf("."));
+    const isBinary = BINARY_EXTS.has(ext);
+
+    if (isBinary) {
+      // Binary file (DOCX, XLSX, PDF, image) — use appropriate extractor
+      const raw = await extractBinaryFile(filePath);
+      return parseContent(raw, ext === ".docx" ? "text/plain" : ext === ".xlsx" || ext === ".xls" ? "text/csv" : "text/plain");
+    }
+
     const { readFileSync } = await import("fs");
     const raw = readFileSync(filePath, "utf-8");
-    const ct = filePath.endsWith(".csv") ? "text/csv" : filePath.endsWith(".jsonl") ? "application/jsonl" : filePath.endsWith(".json") ? "application/json" : "text/plain";
+    const ct = filePath.endsWith(".csv") ? "text/csv" : filePath.endsWith(".jsonl") ? "application/jsonl" : filePath.endsWith(".json") ? "application/json" : filePath.endsWith(".sql") ? "text/plain" : filePath.endsWith(".md") ? "text/markdown" : "text/plain";
     return parseContent(raw, ct);
   }
 

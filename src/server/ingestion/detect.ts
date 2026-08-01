@@ -1,11 +1,8 @@
 /** URL pattern → source type + metadata. */
 
 export type SourceInfo = {
-  /** slug for routing: "hf" | "kaggle" | "uci" | "worldbank" | "csv" | "json" | "jsonl" | "raw" */
   source: string;
-  /** human-readable dataset name derived from URL */
   name: string;
-  /** extra context extracted from URL (HF config/split, Kaggle owner, etc.) */
   meta: Record<string, string>;
 };
 
@@ -13,6 +10,29 @@ const HF_RE = /huggingface\.co\/datasets\/([^/]+(?:\/[^/]+)?)/;
 const KAGGLE_RE = /kaggle\.com\/datasets\/([^/]+\/[^/?#]+)/;
 const UCI_RE = /archive\.ics\.uci\.edu/;
 const WORLDBANK_RE = /worldbank\.org/;
+
+const EXT_MAP: Record<string, string> = {
+  ".csv": "csv",
+  ".json": "json",
+  ".jsonl": "jsonl",
+  ".txt": "text",
+  ".md": "text",
+  ".html": "html",
+  ".htm": "html",
+  ".xml": "text",
+  ".docx": "docx",
+  ".xlsx": "xlsx",
+  ".xls": "xls",
+  ".sql": "sql",
+  ".pdf": "pdf",
+  ".png": "image",
+  ".jpg": "image",
+  ".jpeg": "image",
+  ".tiff": "image",
+  ".tif": "image",
+  ".bmp": "image",
+  ".webp": "image",
+};
 
 export function detectSource(url: string): SourceInfo {
   const hf = url.match(HF_RE);
@@ -50,16 +70,41 @@ export function detectSource(url: string): SourceInfo {
     };
   }
 
-  const pathExt = new URL(url).pathname.toLowerCase();
-  if (pathExt.endsWith(".csv")) return { source: "csv", name: basename(url, ".csv"), meta: {} };
-  if (pathExt.endsWith(".jsonl")) return { source: "jsonl", name: basename(url, ".jsonl"), meta: {} };
-  if (pathExt.endsWith(".json")) return { source: "json", name: basename(url, ".json"), meta: {} };
+  // URL path extension detection
+  try {
+    const pathExt = new URL(url).pathname.toLowerCase();
+    for (const [ext, source] of Object.entries(EXT_MAP)) {
+      if (pathExt.endsWith(ext)) return { source, name: basename(url, ext), meta: {} };
+    }
+  } catch {
+    // invalid URL
+  }
 
   return { source: "raw", name: basename(url, ""), meta: {} };
 }
 
 function basename(url: string, ext: string): string {
-  const path = new URL(url).pathname;
-  const name = path.split("/").filter(Boolean).pop() || "dataset";
-  return ext && name.endsWith(ext) ? name.slice(0, -ext.length) : name;
+  try {
+    const path = new URL(url).pathname;
+    const name = path.split("/").filter(Boolean).pop() || "dataset";
+    return ext && name.endsWith(ext) ? name.slice(0, -ext.length) : name;
+  } catch {
+    return "dataset";
+  }
 }
+
+/** Detect file type from local path extension. */
+export function detectFileType(filePath: string): string {
+  const lower = filePath.toLowerCase();
+  for (const [ext, type] of Object.entries(EXT_MAP)) {
+    if (lower.endsWith(ext)) return type;
+  }
+  // Try to detect by reading first bytes
+  return "binary";
+}
+
+/** Binary extensions that need special handling (not plain text). */
+export const BINARY_EXTS = new Set([
+  ".docx", ".xlsx", ".xls",
+  ".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp",
+]);

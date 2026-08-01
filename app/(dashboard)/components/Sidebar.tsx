@@ -9,6 +9,7 @@ const navGroups = [
     items: [
       { href: "/datasets", label: "Datasets" },
       { href: "/benchmarks", label: "Benchmarks" },
+      { href: "/ranking", label: "Ranking" },
     ],
   },
   {

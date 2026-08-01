@@ -4,14 +4,14 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 
 type QuestionResult = {
-  question: string;
-  reference: string;
-  retrievedCount: number;
+  questionLabel: string;
+  retrievalCount: number;
   retrievedDocTitles: string[];
   latencyMs: number;
   faithfulness: number;
   answerRelevance: number;
   contextUtilization: number;
+  tokenF1: number;
 };
 
 type BenchmarkMetrics = {
@@ -19,11 +19,14 @@ type BenchmarkMetrics = {
   faithfulness: number;
   answerRelevance: number;
   contextUtilization: number;
+  tokenF1: number;
 };
 
 type BenchmarkRun = {
   id: string;
   datasetName: string;
+  provider: string;
+  model: string;
   totalQuestions: number;
   createdAt: number;
   metrics: BenchmarkMetrics;
@@ -41,34 +44,42 @@ type MetricDef = {
 
 const METRICS: MetricDef[] = [
   {
+    key: "tokenF1",
+    label: "Token F1",
+    question: "How accurate is the answer?",
+    definition: "Token-overlap F1 between generated answer and reference document content.",
+    suffix: "higher is better",
+    isLatency: false,
+  },
+  {
     key: "latencyMs",
     label: "Latency",
     question: "How fast is the retrieval?",
-    definition: "Average time per question to search + evaluate retrieved context.",
+    definition: "Average time per question to search + evaluate + generate answer.",
     suffix: "lower is better",
     isLatency: true,
   },
   {
     key: "faithfulness",
     label: "Faithfulness",
-    question: "Is the answer factually correct?",
-    definition: "Does the generated answer accurately reflect the information in the retrieved documents?",
+    question: "Is the context factually correct?",
+    definition: "Does the retrieved context contain factually consistent information?",
     suffix: "higher is better",
     isLatency: false,
   },
   {
     key: "answerRelevance",
     label: "Answer Relevance",
-    question: "Does the answer address the question?",
-    definition: "How well does the generated answer match the user's question?",
+    question: "Does the context address the question?",
+    definition: "How relevant is the retrieved context to the question?",
     suffix: "higher is better",
     isLatency: false,
   },
   {
     key: "contextUtilization",
     label: "Context Utilization",
-    question: "How well did we use the retrieved information?",
-    definition: "Measures how effectively the generation model used the retrieved context.",
+    question: "How well did we use the retrieved info?",
+    definition: "Does the context contain sufficient info to fully answer?",
     suffix: "higher is better",
     isLatency: false,
   },
@@ -108,7 +119,6 @@ function LatencyBadge({ ms, size = "sm" }: { ms: number; size?: "sm" | "lg" }) {
 
 function DetailRow({ q, idx }: { q: QuestionResult; idx: number }) {
   const [open, setOpen] = useState(false);
-  const avgGen = (q.faithfulness + q.answerRelevance + q.contextUtilization) / 3;
 
   return (
     <div className="border border-line rounded-2xl overflow-hidden">
@@ -118,26 +128,21 @@ function DetailRow({ q, idx }: { q: QuestionResult; idx: number }) {
       >
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-xs text-muted font-mono shrink-0">Q{idx + 1}</span>
-          <p className="text-sm truncate leading-snug">{q.question || "(empty question)"}</p>
+          <p className="text-sm truncate leading-snug">{q.questionLabel || "(empty question)"}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <ScoreBadge score={q.tokenF1} />
           <LatencyBadge ms={q.latencyMs} />
-          <ScoreBadge score={avgGen} />
           <span className="text-muted text-xs ml-1">{open ? "▲" : "▼"}</span>
         </div>
       </button>
       {open && (
         <div className="px-4 pb-4 pt-0 border-t border-line space-y-3 text-sm">
-          {/* Reference */}
-          <div>
-            <span className="text-xs text-muted block mb-1">Reference Answer</span>
-            <p className="text-text bg-bg-alt rounded-lg px-3 py-2 text-xs leading-relaxed max-h-40 overflow-y-auto">
-              {q.reference || "(none)"}
-            </p>
-          </div>
-
-          {/* Metric scores per-question */}
           <div className="grid grid-cols-2 gap-2">
+            <div className="bg-bg-alt rounded-lg px-3 py-2">
+              <span className="text-xs text-muted block">Token F1</span>
+              <ScoreBadge score={q.tokenF1} />
+            </div>
             <div className="bg-bg-alt rounded-lg px-3 py-2">
               <span className="text-xs text-muted block">Latency</span>
               <LatencyBadge ms={q.latencyMs} />
@@ -156,10 +161,9 @@ function DetailRow({ q, idx }: { q: QuestionResult; idx: number }) {
             </div>
           </div>
 
-          {/* Retrieved docs */}
           <div>
             <span className="text-xs text-muted block mb-1">
-              Retrieved Docs (top-{q.retrievedCount})
+              Retrieved Docs (top-{q.retrievalCount})
             </span>
             <ul className="space-y-1">
               {q.retrievedDocTitles.map((t, i) => (
@@ -231,6 +235,9 @@ export default function BenchmarkDetailPage() {
           <h1 className="text-2xl font-bold mb-1">{run.datasetName}</h1>
           <p className="text-sm text-muted">
             {new Date(run.createdAt).toLocaleString()} &middot; {run.totalQuestions} questions
+          </p>
+          <p className="text-xs text-muted mt-1 font-mono">
+            {run.provider}/{run.model}
           </p>
         </div>
 

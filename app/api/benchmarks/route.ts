@@ -2,22 +2,18 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
 import { callLlm } from "@/server/rag/providers";
-import { getRuns } from "@/server/benchmarks/store";
-import type { BenchmarkRun, BenchmarkMetrics, QuestionResult } from "@/server/benchmarks/store";
+import { tokenF1 } from "@/server/rag/benchmark";
+import { getRuns, saveRun } from "@/server/benchmarks/store";
+import type { BenchmarkRun, BenchmarkMetrics, CompactQuestionResult } from "@/server/benchmarks/store";
 
 export const runtime = "nodejs";
 
 // ── Schema ─────────────────────────────────────────────────────
 
 const documentSchema = z.object({
-  id: z.number().optional(),
   sourceKey: z.string().optional(),
-  sourceName: z.string().optional(),
-  sourceUrl: z.string().nullable().optional(),
   title: z.string().optional(),
   content: z.string(),
-  metadata: z.record(z.unknown()).optional(),
-  chunkIndex: z.number().optional(),
 });
 
 const runBenchmarkSchema = z.object({
@@ -35,7 +31,7 @@ const runBenchmarkSchema = z.object({
 async function evaluateGeneration(
   question: string,
   context: string,
-  apiKeys: Record<string, { key: string; validated?: boolean } | undefined>,
+  apiKeys: Record<string, { key: string }>,
   provider: string,
   model: string,
 ): Promise<{ faithfulness: number; answerRelevance: number; contextUtilization: number }> {
@@ -54,22 +50,22 @@ Return ONLY valid JSON (no markdown, no code fences):
 }
 
 Definitions:
-- faithfulness: Does the retrieved context contain factually consistent, non-contradictory information that would support a trustworthy answer? 0 = context is contradictory or unreliable, 1 = context is fully consistent and factual.
-- answerRelevance: How relevant is the retrieved context to answering the question? 0 = completely off-topic, 1 = perfectly addresses the question.
-- contextUtilization: Does the retrieved context contain sufficient information to fully answer the question? 0 = not enough info at all, 1 = completely sufficient to answer fully.
+- faithfulness: Does the retrieved context contain factually consistent, non-contradictory information? 0 = contradictory/unreliable, 1 = fully consistent/factual.
+- answerRelevance: How relevant is the context to answering the question? 0 = off-topic, 1 = perfectly addresses it.
+- contextUtilization: Does the context contain sufficient info to fully answer? 0 = none, 1 = completely sufficient.
 
 Question: ${question}
-Retrieved Context: ${context}`;
+Context: ${context}`;
 
   try {
     const response = await callLlm({
       provider: provider as "nvidia" | "openai" | "anthropic",
       model,
       messages: [
-        { role: "system", content: "You are a precise RAG evaluation assistant. Output only valid JSON." },
+        { role: "system", content: "Output only valid JSON." },
         { role: "user", content: prompt },
       ],
-      apiKeys: apiKeys as Record<string, { key: string; validated: boolean }>,
+      apiKeys: apiKeys as Record<string, { key: string }>,
       temperature: 0.1,
       maxTokens: 256,
     });
@@ -85,6 +81,43 @@ Retrieved Context: ${context}`;
   }
 }
 
+/** Generate answer using the selected model + context. Returns answer text. */
+async function generateAnswer(
+  question: string,
+  context: string,
+  apiKeys: Record<string, { key: string }>,
+  provider: string,
+  model: string,
+): Promise<string> {
+  const entry = apiKeys[provider];
+  if (!entry?.key) return "";
+
+  try {
+    const answer = await callLlm({
+      provider: provider as "nvidia" | "openai" | "anthropic",
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Answer the question concisely in 1-3 sentences using the context. " +
+            "If context lacks info, say 'Not enough context to answer.'",
+        },
+        {
+          role: "user",
+          content: `Question: ${question}\n\nContext:\n${context}`,
+        },
+      ],
+      apiKeys: apiKeys as Record<string, { key: string }>,
+      temperature: 0.2,
+      maxTokens: 512,
+    });
+    return answer;
+  } catch {
+    return "";
+  }
+}
+
 function clamp(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
@@ -96,8 +129,9 @@ export async function GET(request: Request) {
     const guard = applyApiGuard(request, RateLimits.default);
     if (guard) return guard;
 
-    // Remove details from list response to keep it lightweight
-    const summary = getRuns().map(({ details, ...rest }) => rest);
+    // List view: strip details, keep summary
+    const runs = getRuns();
+    const summary = runs.map(({ details, ...rest }) => rest);
     return NextResponse.json({ benchmarks: summary });
   } catch {
     return serverError();
@@ -106,12 +140,11 @@ export async function GET(request: Request) {
 
 // ── POST: run benchmark ───────────────────────────────────────
 
-/** Deterministic shuffle: use first N docs sorted by sourceKey */
+/** Deterministic: sort by sourceKey for stable question selection */
 function pickQuestions(
   docs: Array<{ sourceKey: string; title: string; content: string }>,
   limit: number,
 ): Array<{ sourceKey: string; title: string; content: string }> {
-  // Sort by sourceKey for determinism — same dataset always picks same questions
   const sorted = [...docs].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
   return sorted.slice(0, Math.min(limit, sorted.length));
 }
@@ -130,53 +163,69 @@ export async function POST(request: Request) {
     // Normalize documents
     const docs = documents.map((d, i) => ({
       sourceKey: d.sourceKey ?? `doc-${i}`,
-      sourceName: d.sourceName ?? "",
       title: d.title ?? "",
       content: d.content,
     }));
 
-    // Pick `limit` deterministic docs as questions
+    // Pick `limit` docs as questions
     const questions = pickQuestions(docs, limit);
+    const corpus = docs;
 
-    const results: QuestionResult[] = [];
+    const results: CompactQuestionResult[] = [];
+    let totalTokenF1 = 0;
 
     for (const q of questions) {
       const t0 = performance.now();
 
       // Search excluding the question doc itself
-      const corpus = docs.filter((d) => d.sourceKey !== q.sourceKey);
-      const topK = keywordSearch(corpus, q.title || q.content.slice(0, 200), 5);
-
-      // ── Generation eval (LLM) ──
+      const topK = keywordSearch(
+        corpus.filter((d) => d.sourceKey !== q.sourceKey),
+        q.title || q.content.slice(0, 200),
+        5,
+      );
       const contextText = topK
         .map((d, i) => `[${i + 1}] ${d.title}\n${d.content.slice(0, 500)}`)
         .join("\n\n");
 
-      const gen = await evaluateGeneration(
-        q.title || q.content.slice(0, 200),
-        contextText,
-        apiKeys,
-        provider,
-        model,
-      );
+      // ── Parallel: evaluate retrieval + generate answer ──
+      const [gen, answer] = await Promise.all([
+        evaluateGeneration(
+          q.title || q.content.slice(0, 200),
+          contextText,
+          apiKeys,
+          provider,
+          model,
+        ),
+        generateAnswer(
+          q.title || q.content.slice(0, 200),
+          contextText,
+          apiKeys,
+          provider,
+          model,
+        ),
+      ]);
+
+      // Token F1 between generated answer and reference content
+      const f1 = tokenF1(answer, q.content);
+      totalTokenF1 += f1;
 
       const elapsed = performance.now() - t0;
 
       results.push({
-        question: q.title || q.content.slice(0, 200),
-        reference: q.content, // full content, no truncation
-        retrievedCount: topK.length,
+        questionLabel: (q.title || q.content).slice(0, 80),
+        retrievalCount: topK.length,
         retrievedDocTitles: topK.map((d) => d.title || "(untitled)"),
         latencyMs: elapsed,
         faithfulness: gen.faithfulness,
         answerRelevance: gen.answerRelevance,
         contextUtilization: gen.contextUtilization,
+        tokenF1: f1,
       });
     }
 
     // Aggregate
     const n = results.length;
-    const aggregate = (fn: (r: QuestionResult) => number) =>
+    const aggregate = (fn: (r: CompactQuestionResult) => number) =>
       n > 0 ? results.reduce((s, r) => s + fn(r), 0) / n : 0;
 
     const metrics: BenchmarkMetrics = {
@@ -184,12 +233,15 @@ export async function POST(request: Request) {
       faithfulness: aggregate((r) => r.faithfulness),
       answerRelevance: aggregate((r) => r.answerRelevance),
       contextUtilization: aggregate((r) => r.contextUtilization),
+      tokenF1: aggregate((r) => r.tokenF1),
     };
 
     const run: BenchmarkRun = {
       id: crypto.randomUUID(),
       datasetId,
       datasetName,
+      provider,
+      model,
       totalQuestions: n,
       status: "completed",
       createdAt: Date.now(),
@@ -197,9 +249,8 @@ export async function POST(request: Request) {
       details: results,
     };
 
-    const store = getRuns();
-    store.unshift(run);
-    if (store.length > 50) store.length = 50;
+    // Persist to disk (compact)
+    saveRun(run);
 
     return NextResponse.json(run);
   } catch (error) {
@@ -211,7 +262,7 @@ export async function POST(request: Request) {
   }
 }
 
-// ── Keyword search (used internally) ──────────────────────────
+// ── Keyword search ────────────────────────────────────────────
 
 function tokenize(text: string): string[] {
   return text.toLowerCase().split(/\s+/).filter((t) => t.length > 1);

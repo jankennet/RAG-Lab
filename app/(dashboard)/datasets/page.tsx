@@ -211,11 +211,43 @@ export default function DatasetsPage() {
 
     try {
       if (source === "upload") {
-        // ── Upload: parse text files client-side, PDFs go to server ──
+        // ── Pre-upload check: files needing Python OCR service? ──
+        const OCR_EXTS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"]);
+        const needsPython = selectedFiles.some((f) =>
+          OCR_EXTS.has(f.name.substring(f.name.lastIndexOf(".")).toLowerCase()),
+        );
+        if (needsPython) {
+          // Health-check Python service via server proxy (no CORS).
+          setUploadProgress("Checking Python OCR service...");
+          try {
+            const healthRes = await fetch("/api/python-health", {
+              signal: AbortSignal.timeout(6000),
+            });
+            const health = await healthRes.json();
+            if (!health.running) throw new Error("unreachable");
+          } catch {
+            const ocrFiles = selectedFiles
+              .filter((f) => OCR_EXTS.has(f.name.substring(f.name.lastIndexOf(".")).toLowerCase()))
+              .map((f) => f.name)
+              .join(", ");
+            setUploadProgress(null);
+            setIsAdding(false);
+            setAddError(
+              `Python OCR service not running (http://127.0.0.1:8001). ` +
+              `Cannot extract text from: ${ocrFiles}. ` +
+              `Start with: npm run rag-service. Non-OCR files (DOCX, XLSX, text) don't need it. ` +
+              `See python-service/README.md.`
+            );
+            return;
+          }
+        }
+
+        // ── Upload: text files client-side, binary files (PDF/DOCX/XLSX/images) → server ──
         setUploadProgress(`Parsing ${selectedFiles.length} file(s)...`);
 
-        const textFiles = selectedFiles.filter((f) => !f.name.toLowerCase().endsWith(".pdf"));
-        const pdfFiles = selectedFiles.filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+        const BINARY_EXTS = new Set([".pdf", ".docx", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"]);
+        const textFiles = selectedFiles.filter((f) => !BINARY_EXTS.has(f.name.substring(f.name.lastIndexOf(".")).toLowerCase()));
+        const binaryFiles = selectedFiles.filter((f) => BINARY_EXTS.has(f.name.substring(f.name.lastIndexOf(".")).toLowerCase()));
 
         const parsedTextFiles: Array<{ filename: string; content: string }> = [];
 
@@ -223,28 +255,28 @@ export default function DatasetsPage() {
         for (const f of textFiles) {
           const raw = await f.text();
           let content = raw;
-          // Prettify JSON for better chunking
           if (f.name.toLowerCase().endsWith(".json")) {
             try { content = JSON.stringify(JSON.parse(raw), null, 2); } catch {}
           }
           parsedTextFiles.push({ filename: f.name, content });
         }
 
-        // Parse PDFs server-side
-        if (pdfFiles.length > 0) {
-          setUploadProgress(`Uploading ${pdfFiles.length} PDF(s) for parsing...`);
+        // Parse binary files server-side
+        if (binaryFiles.length > 0) {
+          const names = binaryFiles.map((f) => f.name).join(", ");
+          setUploadProgress(`Uploading ${binaryFiles.length} binary file(s) for parsing: ${names}...`);
           const form = new FormData();
           form.set("datasetName", name.trim());
-          for (const f of pdfFiles) {
+          for (const f of binaryFiles) {
             form.append("files", f);
           }
           const res = await fetch("/api/upload", { method: "POST", body: form });
           const data = await res.json();
           if (!res.ok) {
-            throw new Error(typeof data.error === "string" ? data.error : "PDF parse failed");
+            throw new Error(typeof data.error === "string" ? data.error : "Server parse failed");
           }
-          const pdfResult = (data as { files?: Array<{ filename: string; content: string }> }).files ?? [];
-          parsedTextFiles.push(...pdfResult);
+          const serverResults = (data as { files?: Array<{ filename: string; content: string }> }).files ?? [];
+          parsedTextFiles.push(...serverResults);
         }
 
         if (parsedTextFiles.length === 0) {
@@ -439,7 +471,7 @@ export default function DatasetsPage() {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".txt,.md,.json,.csv,.html,.htm,.xml,.log,.sql,.pdf"
+                  accept=".txt,.md,.json,.csv,.html,.htm,.xml,.log,.sql,.pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.tiff,.bmp,.webp"
                   onChange={handleFileChange}
                   className="hidden"
                 />
@@ -469,7 +501,7 @@ export default function DatasetsPage() {
                         Drop files here or click to browse
                       </p>
                       <p className="text-xs text-muted mt-1">
-                        TXT, JSON, CSV, MD, HTML, XML, SQL, PDF · Stored in OPFS (browser storage, limited by disk)
+                        TXT, JSON, CSV, MD, HTML, SQL, PDF, DOCX, XLSX, images · Stored in OPFS (browser storage)
                       </p>
                     </div>
                   )}

@@ -19,9 +19,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ingestion.csv_processor import SemanticChunk, process_csv, chunk_to_dict
+from ingestion.docx_processor import extract_docx
+from ingestion.xlsx_processor import extract_xlsx
+from ingestion.ocr_processor import extract_ocr_text
+from ingestion.sql_processor import extract_sql, extract_sql_metadata
 from ingestion.embedder import embed_batch, embed_query
 from retrieval.vector_store import VectorStore, SearchResult, StoredChunk, keyword_search
 
@@ -29,6 +34,15 @@ app = FastAPI(
     title="RAG Intelligence Layer",
     description="Smart CSV ingestion + vector retrieval microservice",
     version="0.1.0",
+)
+
+# Allow browser fetch from Next.js dev server / production
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ── Config ──────────────────────────────────────────────────────────────
@@ -233,6 +247,151 @@ async def retrieve(req: RetrieveRequest):
         ],
         total_chunks_searched=total_chunks,
     )
+
+
+# ── Extract Text endpoint ──────────────────────────────────────────
+
+class ExtractTextRequest(BaseModel):
+    file_path: str
+    mime_type: str | None = None
+    ocr_lang: str = "eng"
+    ocr_dpi: int = 200
+
+
+class ExtractTextResponse(BaseModel):
+    text: str
+    title: str
+    metadata: dict[str, Any]
+    extraction_method: str
+
+
+@app.post("/extract-text", response_model=ExtractTextResponse)
+async def extract_text(req: ExtractTextRequest):
+    """Extract text from any supported file format.
+
+    Supported:
+      .txt, .md, .html  → direct read
+      .csv               → pandas read + pipe-delimited rows
+      .json, .jsonl      → pretty-printed
+      .docx              → python-docx
+      .xlsx, .xls        → pandas read_excel
+      .sql               → SQL parser
+      .pdf               → OCR if image-based, pdftotext if text layer
+      .png, .jpg, ...    → Tesseract OCR
+    """
+    path = Path(req.file_path)
+    if not path.exists():
+        raise HTTPException(400, f"File not found: {path}")
+
+    if not path.is_file():
+        raise HTTPException(400, f"Not a file: {path}")
+
+    ext = path.suffix.lower()
+    mime = (req.mime_type or "").lower()
+
+    try:
+        # Direct text
+        if ext in (".txt", ".md", ".text", ".rst"):
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            return ExtractTextResponse(
+                text=raw, title=path.stem,
+                metadata={"filename": path.name, "file_type": ext},
+                extraction_method="direct",
+            )
+
+        # CSV (via pandas for smart formatting)
+        if ext == ".csv" or "csv" in mime:
+            df = pd.read_csv(path, on_bad_lines="skip", nrows=500)
+            lines = []
+            lines.append(" | ".join(str(c) for c in df.columns))
+            for _, row in df.head(200).iterrows():
+                lines.append(" | ".join(str(v) for v in row.values))
+            text = "\n".join(lines)
+            return ExtractTextResponse(
+                text=text, title=path.stem,
+                metadata={"filename": path.name, "file_type": "csv", "rows": len(df)},
+                extraction_method="csv",
+            )
+
+        # JSON
+        if ext == ".json" or "json" in mime:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            return ExtractTextResponse(
+                text=raw, title=path.stem,
+                metadata={"filename": path.name, "file_type": "json"},
+                extraction_method="direct",
+            )
+
+        # JSONL
+        if ext == ".jsonl":
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            return ExtractTextResponse(
+                text=raw, title=path.stem,
+                metadata={"filename": path.name, "file_type": "jsonl"},
+                extraction_method="direct",
+            )
+
+        # DOCX
+        if ext == ".docx":
+            result = extract_docx(path)
+            return ExtractTextResponse(
+                text=result["text"], title=result["title"],
+                metadata=result["metadata"],
+                extraction_method="docx",
+            )
+
+        # XLSX / XLS
+        if ext in (".xlsx", ".xls"):
+            result = extract_xlsx(path)
+            return ExtractTextResponse(
+                text=result["text"], title=result["title"],
+                metadata=result["metadata"],
+                extraction_method="xlsx",
+            )
+
+        # SQL
+        if ext == ".sql":
+            result = extract_sql(path)
+            meta = dict(result["metadata"])
+            # Optionally enrich with parsed schema
+            try:
+                schema = extract_sql_metadata(path)
+                meta["tables"] = schema.get("tables", [])
+                meta["table_count"] = schema.get("table_count", 0)
+            except Exception:
+                pass
+            return ExtractTextResponse(
+                text=result["text"], title=result["title"],
+                metadata=meta,
+                extraction_method="sql",
+            )
+
+        # PDF / images → OCR
+        if ext in (".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"):
+            result = extract_ocr_text(
+                path, lang=req.ocr_lang, dpi=req.ocr_dpi,
+            )
+            return ExtractTextResponse(
+                text=result["text"], title=result["title"],
+                metadata=result["metadata"],
+                extraction_method="ocr",
+            )
+
+        # Fallback: try reading as text
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        if len(raw.strip()) > 0:
+            return ExtractTextResponse(
+                text=raw, title=path.stem,
+                metadata={"filename": path.name, "file_type": ext or "unknown"},
+                extraction_method="fallback",
+            )
+
+        raise HTTPException(400, f"Unsupported file type: {ext}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Extraction failed for {path.name}: {e}")
 
 
 if __name__ == "__main__":

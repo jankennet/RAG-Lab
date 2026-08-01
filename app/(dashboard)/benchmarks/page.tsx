@@ -11,6 +11,7 @@ type BenchmarkMetrics = {
   faithfulness: number;
   answerRelevance: number;
   contextUtilization: number;
+  tokenF1: number;
 };
 
 type BenchmarkRun = {
@@ -18,6 +19,8 @@ type BenchmarkRun = {
   datasetId: string;
   datasetName: string;
   totalQuestions: number;
+  provider: string;
+  model: string;
   metrics: BenchmarkMetrics;
   status: string;
   createdAt: number;
@@ -48,13 +51,11 @@ export default function BenchmarksPage() {
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
 
-  // ── Running animation ──
   const RUN_PHASES = [
     "Loading documents from OPFS...",
-    "Evaluating generation quality with LLM...",
-    "Checking faithfulness against context...",
-    "Analyzing answer relevance...",
-    "Measuring context utilization...",
+    "Retrieving relevant context...",
+    "Evaluating retrieval quality with LLM...",
+    "Generating answers for token F1 scoring...",
     "Crunching final metrics...",
   ];
   const [phaseIdx, setPhaseIdx] = useState(0);
@@ -72,9 +73,7 @@ export default function BenchmarksPage() {
 
     phaseInterval.current = setInterval(() => {
       setPhaseIdx((p) => {
-        if (p >= RUN_PHASES.length - 1) {
-          return Math.max(RUN_PHASES.length - 3, p);
-        }
+        if (p >= RUN_PHASES.length - 1) return Math.max(RUN_PHASES.length - 3, p);
         return p + 1;
       });
       setProgress((p) => Math.min(p + 0.12, 0.9));
@@ -149,22 +148,6 @@ export default function BenchmarksPage() {
     }
   };
 
-  const statusColor = (status: string) => {
-    switch (status) {
-      case "completed": return "text-success";
-      case "running": return "text-warning";
-      default: return "text-muted";
-    }
-  };
-
-  const statusBg = (status: string) => {
-    switch (status) {
-      case "completed": return "bg-success/10 border-success/20";
-      case "running": return "bg-warning/10 border-warning/20";
-      default: return "bg-muted/10 border-muted/20";
-    }
-  };
-
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-8">
@@ -174,7 +157,9 @@ export default function BenchmarksPage() {
         <div className="bg-bg-alt rounded-2xl border border-line p-6 mb-8">
           <h2 className="font-semibold mb-2">Run Benchmark</h2>
           <p className="text-sm text-muted mb-6">
-            Evaluate retrieval quality using LLM-based generation metrics (faithfulness, relevance, context utilization) and latency.
+            Measures retrieval quality + answer accuracy using current model.
+            Scores: faithfulness, relevance, context utilization (LLM-judged),
+            token F1 (answer vs reference), and latency.
           </p>
           <form onSubmit={handleTrigger} className="space-y-4">
             <div>
@@ -204,6 +189,9 @@ export default function BenchmarksPage() {
                 className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
               />
             </div>
+            <div className="text-xs text-muted mb-2">
+              Model: <span className="font-mono text-text">{preferences.model}</span> via {preferences.provider}
+            </div>
             {triggerError && (
               <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">
                 {triggerError}
@@ -218,7 +206,6 @@ export default function BenchmarksPage() {
             </button>
           </form>
 
-          {/* ── Running overlay ── */}
           {triggering && (
             <div className="mt-6 bg-[#03111a] border border-accent/20 rounded-2xl p-5 overflow-hidden relative">
               <div className="h-2 bg-bg rounded-full overflow-hidden mb-4">
@@ -227,15 +214,13 @@ export default function BenchmarksPage() {
                   style={{ width: `${progress * 100}%` }}
                 />
               </div>
-
               <div className="flex items-center gap-3 min-h-[2.5rem]">
                 <span className="text-accent font-mono text-sm animate-pulse">
                   {RUN_PHASES[phaseIdx]}
                 </span>
               </div>
-
               <p className="text-xs text-muted mt-3 font-mono">
-                &gt; Benchmarking {limit} questions against {datasets.find(d => d.id === datasetId)?.name || "dataset"}...
+                &gt; Benchmarking {limit} questions with {preferences.provider}/{preferences.model}
               </p>
             </div>
           )}
@@ -268,31 +253,38 @@ export default function BenchmarksPage() {
                       <p className="text-xs text-muted mt-0.5">
                         {new Date(run.createdAt).toLocaleString()}
                       </p>
+                      <p className="text-xs text-muted mt-0.5 font-mono">
+                        {run.provider}/{run.model}
+                      </p>
                     </div>
-                    <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${statusBg(run.status)} ${statusColor(run.status)}`}>
+                    <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${
+                      run.status === "completed" ? "bg-success/10 border-success/20 text-success" :
+                      "bg-muted/10 border-muted/20 text-muted"
+                    }`}>
                       {run.status}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted">{run.totalQuestions} questions</span>
-                    <span className="text-muted">&rarr;</span>
-                  </div>
+                  <div className="text-xs text-muted mb-3">{run.totalQuestions} questions</div>
                   {run.metrics && (
-                    <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-line">
+                    <div className="grid grid-cols-5 gap-2 pt-3 border-t border-line">
                       <div>
                         <span className="text-xs text-muted block mb-0.5">Latency</span>
                         <span className="font-mono text-xs font-medium">{formatMs(run.metrics.latencyMs)}</span>
                       </div>
                       <div>
-                        <span className="text-xs text-muted block mb-0.5">Faithfulness</span>
+                        <span className="text-xs text-muted block mb-0.5">F1</span>
+                        <ScoreBadge score={run.metrics.tokenF1} />
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted block mb-0.5">Faith</span>
                         <ScoreBadge score={run.metrics.faithfulness} />
                       </div>
                       <div>
-                        <span className="text-xs text-muted block mb-0.5">Relevance</span>
+                        <span className="text-xs text-muted block mb-0.5">Relv</span>
                         <ScoreBadge score={run.metrics.answerRelevance} />
                       </div>
                       <div>
-                        <span className="text-xs text-muted block mb-0.5">Context Use</span>
+                        <span className="text-xs text-muted block mb-0.5">Ctx</span>
                         <ScoreBadge score={run.metrics.contextUtilization} />
                       </div>
                     </div>
