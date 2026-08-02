@@ -2,21 +2,15 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-
-type Metrics = {
-  latencyMs: number;
-  faithfulness: number;
-  answerRelevance: number;
-  contextUtilization: number;
-  tokenF1: number;
-};
+import { loadBenchmarkRuns } from "@/client/opfs";
+import type { BenchmarkRun, BenchmarkMetrics } from "@/client/opfs";
 
 type ModelEntry = {
   datasetName: string;
   provider: string;
   model: string;
   runCount: number;
-  metrics: Metrics;
+  metrics: BenchmarkMetrics;
   lastRunAt: number;
   runId: string;
 };
@@ -73,6 +67,49 @@ function ModelRow({ entry, isBest }: { entry: ModelEntry; isBest: boolean }) {
   );
 }
 
+function computeRanking(runs: BenchmarkRun[]): RankingData {
+  const completed = runs.filter((r) => r.status === "completed");
+
+  // Group by datasetName + provider + model
+  const groupMap = new Map<string, BenchmarkRun[]>();
+  for (const run of completed) {
+    const key = `${run.datasetName}::${run.provider}::${run.model}`;
+    if (!groupMap.has(key)) groupMap.set(key, []);
+    groupMap.get(key)!.push(run);
+  }
+
+  const groups: ModelEntry[] = Array.from(groupMap.entries())
+    .map(([key, groupRuns]) => {
+      const [datasetName, provider, model] = key.split("::");
+      const latest = groupRuns.sort((a, b) => b.createdAt - a.createdAt)[0];
+      return {
+        datasetName,
+        provider,
+        model,
+        runCount: groupRuns.length,
+        metrics: latest.metrics,
+        lastRunAt: latest.createdAt,
+        runId: latest.id,
+      };
+    })
+    .sort((a, b) => b.metrics.tokenF1 - a.metrics.tokenF1);
+
+  const datasetGroups = new Map<string, ModelEntry[]>();
+  for (const g of groups) {
+    if (!datasetGroups.has(g.datasetName)) datasetGroups.set(g.datasetName, []);
+    datasetGroups.get(g.datasetName)!.push(g);
+  }
+
+  const byDataset: DatasetGroup[] = Array.from(datasetGroups.entries())
+    .map(([name, entries]) => ({
+      datasetName: name,
+      models: entries.sort((a, b) => b.metrics.tokenF1 - a.metrics.tokenF1),
+    }))
+    .sort((a, b) => b.models.length - a.models.length);
+
+  return { groups, byDataset };
+}
+
 export default function RankingPage() {
   const [data, setData] = useState<RankingData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -80,13 +117,10 @@ export default function RankingPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/ranking")
-      .then((r) => {
-        if (!r.ok) throw new Error("Failed to load ranking");
-        return r.json();
-      })
-      .then((d: RankingData) => {
-        setData(d);
+    loadBenchmarkRuns()
+      .then((runs) => {
+        const ranking = computeRanking(runs);
+        setData(ranking);
         setError(null);
       })
       .catch((err) => setError(err.message))
@@ -151,10 +185,10 @@ export default function RankingPage() {
                 <thead>
                   <tr className="border-b border-line/60 bg-bg/50">
                     <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Model</th>
-                    <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">F1</th>
-                    <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Faith</th>
-                    <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Relev</th>
-                    <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Ctx</th>
+                    <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Token F1</th>
+                    <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Faithfulness</th>
+                    <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Relevance</th>
+                    <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Context Util</th>
                     <th className="text-left py-3 px-3 text-xs text-muted font-semibold uppercase tracking-wider">Latency</th>
                   </tr>
                 </thead>

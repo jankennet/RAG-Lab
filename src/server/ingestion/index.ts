@@ -2,8 +2,6 @@ export type { DownloadResult } from "./download";
 export { download, downloadHfRows } from "./download";
 export type { FieldHints, ParseResult } from "./parse";
 export { parseContent } from "./parse";
-export type { SourceInfo } from "./detect";
-export { detectSource } from "./detect";
 export { embedBatch } from "./embed";
 export { storeChunks, DATA_DIR } from "./store";
 export type { IndexMeta } from "./store";

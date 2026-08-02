@@ -241,6 +241,113 @@ export function smartChunkText(
   });
 }
 
+// ── Benchmark Storage ─────────────────────────────────────────
+
+// Re-export types used across the app
+export type BenchmarkMetrics = {
+  latencyMs: number;
+  faithfulness: number;
+  answerRelevance: number;
+  contextUtilization: number;
+  tokenF1: number;
+};
+
+export type CompactQuestionResult = {
+  latencyMs: number;
+  faithfulness: number;
+  answerRelevance: number;
+  contextUtilization: number;
+  tokenF1: number;
+  questionLabel: string;
+  retrievalCount: number;
+  retrievedDocTitles: string[];
+};
+
+export type BenchmarkRun = {
+  id: string;
+  datasetId: string;
+  datasetName: string;
+  provider: string;
+  model: string;
+  totalQuestions: number;
+  status: string;
+  createdAt: number;
+  metrics: BenchmarkMetrics;
+  details: CompactQuestionResult[];
+};
+
+const BENCHMARKS_DIR = "rag-benchmarks";
+const BENCHMARKS_INDEX = "benchmarks-index.json";
+
+async function benchmarksDir(): Promise<FileSystemDirectoryHandle> {
+  const root = await rootDir();
+  return ensureDir(root, BENCHMARKS_DIR);
+}
+
+async function loadBenchmarksIndex(): Promise<string[]> {
+  try {
+    const dir = await benchmarksDir();
+    const handle = await readFileHandle(dir, BENCHMARKS_INDEX);
+    if (!handle) return [];
+    return (await readJson(handle)) as string[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveBenchmarksIndex(ids: string[]): Promise<void> {
+  const dir = await benchmarksDir();
+  let handle = await readFileHandle(dir, BENCHMARKS_INDEX);
+  if (!handle) {
+    handle = await dir.getFileHandle(BENCHMARKS_INDEX, { create: true });
+  }
+  await writeJson(handle, ids);
+}
+
+export async function saveBenchmarkRun(run: BenchmarkRun): Promise<void> {
+  const dir = await benchmarksDir();
+  const fileHandle = await dir.getFileHandle(`${run.id}.json`, { create: true });
+  await writeJson(fileHandle, run);
+
+  const index = await loadBenchmarksIndex();
+  if (!index.includes(run.id)) {
+    index.unshift(run.id);
+    // Cap at 100
+    while (index.length > 100) {
+      const old = index.pop()!;
+      try { await dir.removeEntry(`${old}.json`); } catch { /* ignore */ }
+    }
+    await saveBenchmarksIndex(index);
+  }
+}
+
+export async function loadBenchmarkRuns(): Promise<BenchmarkRun[]> {
+  const dir = await benchmarksDir();
+  const ids = await loadBenchmarksIndex();
+  const runs: BenchmarkRun[] = [];
+  for (const id of ids) {
+    try {
+      const handle = await readFileHandle(dir, `${id}.json`);
+      if (handle) {
+        const data = (await readJson(handle)) as BenchmarkRun;
+        runs.push(data);
+      }
+    } catch { /* skip corrupt */ }
+  }
+  return runs;
+}
+
+export async function loadBenchmarkRun(id: string): Promise<BenchmarkRun | null> {
+  try {
+    const dir = await benchmarksDir();
+    const handle = await readFileHandle(dir, `${id}.json`);
+    if (!handle) return null;
+    return (await readJson(handle)) as BenchmarkRun;
+  } catch {
+    return null;
+  }
+}
+
 // ── Keyword Search ─────────────────────────────────────────────
 
 /**

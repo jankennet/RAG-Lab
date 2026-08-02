@@ -3,8 +3,40 @@ import { z } from "zod";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
 import { callLlm } from "@/server/rag/providers";
 import { tokenF1 } from "@/server/rag/benchmark";
-import { getRuns, saveRun } from "@/server/benchmarks/store";
-import type { BenchmarkRun, BenchmarkMetrics, CompactQuestionResult } from "@/server/benchmarks/store";
+
+// ── Types (mirrored for API — persistence is client-side OPFS) ──
+
+type CompactQuestionResult = {
+  latencyMs: number;
+  faithfulness: number;
+  answerRelevance: number;
+  contextUtilization: number;
+  tokenF1: number;
+  questionLabel: string;
+  retrievalCount: number;
+  retrievedDocTitles: string[];
+};
+
+type BenchmarkMetrics = {
+  latencyMs: number;
+  faithfulness: number;
+  answerRelevance: number;
+  contextUtilization: number;
+  tokenF1: number;
+};
+
+type BenchmarkRun = {
+  id: string;
+  datasetId: string;
+  datasetName: string;
+  provider: string;
+  model: string;
+  totalQuestions: number;
+  status: string;
+  createdAt: number;
+  metrics: BenchmarkMetrics;
+  details: CompactQuestionResult[];
+};
 
 export const runtime = "nodejs";
 
@@ -122,22 +154,6 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-// ── GET: benchmark runs (summary only) ────────────────────────
-
-export async function GET(request: Request) {
-  try {
-    const guard = applyApiGuard(request, RateLimits.default);
-    if (guard) return guard;
-
-    // List view: strip details, keep summary
-    const runs = getRuns();
-    const summary = runs.map(({ details, ...rest }) => rest);
-    return NextResponse.json({ benchmarks: summary });
-  } catch {
-    return serverError();
-  }
-}
-
 // ── POST: run benchmark ───────────────────────────────────────
 
 /** Deterministic: sort by sourceKey for stable question selection */
@@ -249,9 +265,7 @@ export async function POST(request: Request) {
       details: results,
     };
 
-    // Persist to disk (compact)
-    saveRun(run);
-
+    // Persistence handled client-side (OPFS)
     return NextResponse.json(run);
   } catch (error) {
     if (error instanceof z.ZodError) {

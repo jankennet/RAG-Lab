@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
-import { getRuns } from "@/server/benchmarks/store";
 
 export const runtime = "nodejs";
 
+// Benchmark detail is read from OPFS client-side.
+// This endpoint exists as a fallback for direct API access.
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -13,13 +14,7 @@ export async function GET(
     if (guard) return guard;
 
     const { id } = await params;
-    const store = getRuns();
-    const run = store.find((r) => r.id === id);
-    if (!run) {
-      return NextResponse.json({ error: "Benchmark run not found" }, { status: 404 });
-    }
-
-    return NextResponse.json(run);
+    return NextResponse.json({ id, note: "Benchmark data is stored in OPFS (Origin Private File System). Use client-side loadBenchmarkRun(id) to read." });
   } catch {
     return serverError();
   }

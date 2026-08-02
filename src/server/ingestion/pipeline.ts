@@ -7,7 +7,7 @@
 
 import { createChunks, selectChunker, type DocumentType } from "@/server/rag/chunker";
 import type { IngestedRow } from "@/shared/types";
-import { detectSource, detectFileType, BINARY_EXTS } from "./detect";
+import { detectFileType, BINARY_EXTS } from "./detect";
 import { download, downloadHfRows, type DownloadResult } from "./download";
 import { embedBatch } from "./embed";
 import { parseContent, type FieldHints } from "./parse";
@@ -125,30 +125,21 @@ async function fetchRows(
     return parseContent(raw, ct);
   }
 
-  const src = detectSource(url);
-
-  if (src.source === "hf") {
-    const name = src.meta.datasetName ?? url;
+  // HuggingFace dataset URL
+  const hfMatch = url.match(/huggingface\.co\/datasets\/([^/]+(?:\/[^/]+)?)/);
+  if (hfMatch) {
+    const name = hfMatch[1];
     let config = "default";
     let split = "train";
 
-    const parsed = new URL(url);
-    if (parsed.searchParams.get("config")) config = parsed.searchParams.get("config")!;
-    if (parsed.searchParams.get("split")) split = parsed.searchParams.get("split")!;
+    try {
+      const parsed = new URL(url);
+      if (parsed.searchParams.get("config")) config = parsed.searchParams.get("config")!;
+      if (parsed.searchParams.get("split")) split = parsed.searchParams.get("split")!;
+    } catch { /* invalid URL */ }
 
     const result = await downloadHfRows(name, config, split, maxRows);
     return parseContent(result.raw, result.contentType);
-  }
-
-  if (src.source === "kaggle") {
-    throw new Error(
-      `Kaggle dataset (${src.meta.fullPath ?? url}) cannot be downloaded automatically. ` +
-      `Kaggle requires authentication. Download CSV manually, then:\n\n` +
-      `  tsx scripts/ingest.ts --file ./path/to/data.csv --content-field <col>\n\n` +
-      `Or use Kaggle CLI:\n` +
-      `  kaggle datasets download ${src.meta.fullPath ?? ""} --unzip && ` +
-      `tsx scripts/ingest.ts --file ./<file>.csv`
-    );
   }
 
   const result: DownloadResult = await download(url);
@@ -162,7 +153,7 @@ export async function runIngestion(opts: IngestOptions): Promise<{
 }> {
   const src = opts.file
     ? { source: "file", name: opts.file.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "dataset", meta: {} as Record<string, string> }
-    : detectSource(opts.url);
+    : { source: "url", name: new URL(opts.url).pathname.split("/").filter(Boolean).pop()?.replace(/\.[^.]+$/, "") ?? "dataset", meta: {} as Record<string, string> };
 
   // 1. Fetch + parse
   const { rows, fieldHints } = await fetchRows(opts.url, opts.file, opts.maxRows ?? 200);

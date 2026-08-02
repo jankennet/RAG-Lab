@@ -2,29 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { loadIndex, loadDocuments } from "@/client/opfs";
-import type { OpfsDataset } from "@/client/opfs";
+import { loadIndex, loadDocuments, loadBenchmarkRuns, saveBenchmarkRun } from "@/client/opfs";
+import type { OpfsDataset, BenchmarkRun, BenchmarkMetrics } from "@/client/opfs";
 import { useDashboard } from "../components/DashboardProvider";
-
-type BenchmarkMetrics = {
-  latencyMs: number;
-  faithfulness: number;
-  answerRelevance: number;
-  contextUtilization: number;
-  tokenF1: number;
-};
-
-type BenchmarkRun = {
-  id: string;
-  datasetId: string;
-  datasetName: string;
-  totalQuestions: number;
-  provider: string;
-  model: string;
-  metrics: BenchmarkMetrics;
-  status: string;
-  createdAt: number;
-};
 
 function ScoreBadge({ score }: { score: number }) {
   const pct = (score * 100).toFixed(1);
@@ -88,15 +68,11 @@ export default function BenchmarksPage() {
     setLoading(true);
     setError(null);
     try {
-      const [runsRes, index] = await Promise.all([
-        fetch("/api/benchmarks"),
+      const [runs, index] = await Promise.all([
+        loadBenchmarkRuns(),
         loadIndex(),
       ]);
-
-      if (!runsRes.ok) throw new Error("Benchmarks fetch failed");
-
-      const runsData = await runsRes.json();
-      setRuns(runsData.benchmarks ?? []);
+      setRuns(runs);
       setDatasets(index);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
@@ -137,6 +113,9 @@ export default function BenchmarksPage() {
       if (!res.ok) {
         throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
       }
+
+      // Save to OPFS
+      await saveBenchmarkRun(data);
 
       await fetchData();
       setDatasetId("");
@@ -266,25 +245,25 @@ export default function BenchmarksPage() {
                   </div>
                   <div className="text-xs text-muted mb-3">{run.totalQuestions} questions</div>
                   {run.metrics && (
-                    <div className="grid grid-cols-5 gap-2 pt-3 border-t border-line">
-                      <div>
-                        <span className="text-xs text-muted block mb-0.5">Latency</span>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 pt-3 border-t border-line">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted">Latency</span>
                         <span className="font-mono text-xs font-medium">{formatMs(run.metrics.latencyMs)}</span>
                       </div>
-                      <div>
-                        <span className="text-xs text-muted block mb-0.5">F1</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted">Token F1</span>
                         <ScoreBadge score={run.metrics.tokenF1} />
                       </div>
-                      <div>
-                        <span className="text-xs text-muted block mb-0.5">Faith</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted">Faithfulness</span>
                         <ScoreBadge score={run.metrics.faithfulness} />
                       </div>
-                      <div>
-                        <span className="text-xs text-muted block mb-0.5">Relv</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted">Relevance</span>
                         <ScoreBadge score={run.metrics.answerRelevance} />
                       </div>
-                      <div>
-                        <span className="text-xs text-muted block mb-0.5">Ctx</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted">Context Util</span>
                         <ScoreBadge score={run.metrics.contextUtilization} />
                       </div>
                     </div>

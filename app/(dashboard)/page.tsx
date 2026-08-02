@@ -12,6 +12,15 @@ import { v4 as uuidv4 } from "uuid";
 import type { RagDocument, LlmProvider } from "@/shared/types";
 
 export default function ChatPage() {
+  type ChatMessageItem = {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    timestamp: number;
+    sources?: RagDocument[];
+    kind?: "normal" | "error";
+  };
+
   const {
     preferences,
     apiKeys,
@@ -23,15 +32,7 @@ export default function ChatPage() {
     setMaxTokens,
     setActiveDataset,
   } = useDashboard();
-  const [messages, setMessages] = useState<
-    Array<{
-      id: string;
-      role: "user" | "assistant";
-      content: string;
-      timestamp: number;
-      sources?: RagDocument[];
-    }>
-  >([]);
+  const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState<"idle" | "searching" | "generating">("idle");
@@ -62,6 +63,33 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const readErrorMessage = async (response: Response) => {
+    const statusText = response.statusText || "Internal Server Error";
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (contentType.includes("application/json")) {
+      try {
+        const data = await response.json();
+        if (typeof data?.error === "string" && data.error.trim()) {
+          return data.error.trim();
+        }
+      } catch {
+        // fall through to text/status fallback
+      }
+    }
+
+    try {
+      const text = await response.text();
+      if (text.trim()) {
+        return text.trim();
+      }
+    } catch {
+      // fall through to status fallback
+    }
+
+    return `HTTP ${response.status} ${statusText}`.trim();
+  };
 
   const handleSubmit = useCallback(
     async (e?: React.FormEvent) => {
@@ -111,8 +139,18 @@ export default function ChatPage() {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error ?? `HTTP ${response.status}`);
+          const errorMessage = await readErrorMessage(response);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: uuidv4(),
+              role: "assistant",
+              content: `Error: ${errorMessage}`,
+              timestamp: Date.now(),
+              kind: "error",
+            },
+          ]);
+          return;
         }
 
         const data = await response.json();
@@ -128,14 +166,15 @@ export default function ChatPage() {
           },
         ]);
       } catch (err) {
-        console.error("Chat error:", err);
+        const errorMessage = err instanceof Error ? err.message : "Unknown chat error";
         setMessages((prev) => [
           ...prev,
           {
             id: uuidv4(),
             role: "assistant",
-            content: "Sorry, something went wrong. Please try again.",
+            content: `Error: ${errorMessage}`,
             timestamp: Date.now(),
+            kind: "error",
           },
         ]);
       } finally {
@@ -198,20 +237,22 @@ export default function ChatPage() {
             ))}
           </select>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-xs text-muted">
-            Top K: {preferences.topK ?? 4}
-          </span>
-          <button
-            onClick={() => setShowInference((v) => !v)}
-            className={`text-xs font-medium px-3 py-1.5 rounded-xl border transition-colors ${
-              showInference
-                ? "bg-accent/10 border-accent/30 text-accent"
-                : "bg-panel border-line text-muted hover:text-text"
-            }`}
-          >
-            ⚙ Inference
-          </button>
+        <div className="flex flex-col items-end gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted">
+              Top K: {preferences.topK ?? 4}
+            </span>
+            <button
+              onClick={() => setShowInference((v) => !v)}
+              className={`text-xs font-medium px-3 py-1.5 rounded-xl border transition-colors ${
+                showInference
+                  ? "bg-accent/10 border-accent/30 text-accent"
+                  : "bg-panel border-line text-muted hover:text-text"
+              }`}
+            >
+              ⚙ Inference
+            </button>
+          </div>
         </div>
       </header>
 
@@ -280,20 +321,22 @@ export default function ChatPage() {
       )}
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto relative">
         <div className="max-w-3xl mx-auto px-6 py-6">
           {messages.map((msg) => (
             <ChatMessage key={msg.id} message={msg} />
           ))}
           {isLoading && (
-            <div className="flex items-center gap-2 px-4 py-3 mb-4 text-sm text-muted">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/60 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
-              </span>
-              {loadingPhase === "searching"
-                ? "Searching relevant documents..."
-                : "Generating answer..."}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/60 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+                </span>
+                {loadingPhase === "searching"
+                  ? "Searching relevant documents..."
+                  : "Generating answer..."}
+              </div>
             </div>
           )}
           <div ref={messagesEndRef} />

@@ -11,3 +11,6 @@ coverage
 .env.*.local
 *.log
 
+# Client-side storage — OPFS (Origin Private File System)
+data/
+

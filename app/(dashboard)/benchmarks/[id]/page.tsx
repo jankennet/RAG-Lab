@@ -2,36 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-
-type QuestionResult = {
-  questionLabel: string;
-  retrievalCount: number;
-  retrievedDocTitles: string[];
-  latencyMs: number;
-  faithfulness: number;
-  answerRelevance: number;
-  contextUtilization: number;
-  tokenF1: number;
-};
-
-type BenchmarkMetrics = {
-  latencyMs: number;
-  faithfulness: number;
-  answerRelevance: number;
-  contextUtilization: number;
-  tokenF1: number;
-};
-
-type BenchmarkRun = {
-  id: string;
-  datasetName: string;
-  provider: string;
-  model: string;
-  totalQuestions: number;
-  createdAt: number;
-  metrics: BenchmarkMetrics;
-  details: QuestionResult[];
-};
+import { loadBenchmarkRun } from "@/client/opfs";
+import type { CompactQuestionResult, BenchmarkRun, BenchmarkMetrics } from "@/client/opfs";
 
 type MetricDef = {
   key: keyof BenchmarkMetrics;
@@ -117,7 +89,7 @@ function LatencyBadge({ ms, size = "sm" }: { ms: number; size?: "sm" | "lg" }) {
   );
 }
 
-function DetailRow({ q, idx }: { q: QuestionResult; idx: number }) {
+function DetailRow({ q, idx }: { q: CompactQuestionResult; idx: number }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -189,12 +161,9 @@ export default function BenchmarkDetailPage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    fetch(`/api/benchmarks/${encodeURIComponent(id)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("Failed to load benchmark");
-        return r.json();
-      })
+    loadBenchmarkRun(id)
       .then((data) => {
+        if (!data) throw new Error("Benchmark not found");
         setRun(data);
         setError(null);
       })
@@ -242,7 +211,7 @@ export default function BenchmarkDetailPage() {
         </div>
 
         {/* Metric cards */}
-        <div className="grid gap-4 mb-8">
+        <div className="grid grid-cols-5 gap-4 mb-8">
           {METRICS.map((m) => {
             const val = run.metrics[m.key];
             return (
