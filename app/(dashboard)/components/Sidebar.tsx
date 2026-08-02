@@ -9,7 +9,7 @@ const navGroups = [
     items: [
       { href: "/datasets", label: "Datasets" },
       { href: "/benchmarks", label: "Benchmarks" },
-      { href: "/ranking", label: "Ranking" },
+      { href: "/compare", label: "Compare" },
     ],
   },
   {
@@ -17,6 +17,10 @@ const navGroups = [
     items: [
       { href: "/settings", label: "Models & Keys" },
     ],
+  },
+  {
+    label: "Overview",
+    items: [{ href: "/about", label: "About" }],
   },
 ];
 
@@ -28,9 +32,9 @@ export default function Sidebar() {
       {/* Logo */}
       <Link href="/" className="flex items-center gap-3 mb-8 group">
         <div className="h-9 w-9 bg-accent rounded-xl flex items-center justify-center transition-transform group-hover:scale-105">
-          <span className="text-[#03111a] text-sm font-bold">AR</span>
+          <span className="text-[#03111a] text-sm font-bold">RL</span>
         </div>
-        <span className="text-lg font-bold text-text tracking-tight">Agentic RAG</span>
+        <span className="text-lg font-bold text-text tracking-tight">RAG Lab</span>
       </Link>
 
       {/* New Chat */}

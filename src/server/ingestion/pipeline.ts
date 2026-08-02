@@ -11,6 +11,7 @@ import { detectFileType, BINARY_EXTS } from "./detect";
 import { download, downloadHfRows, type DownloadResult } from "./download";
 import { embedBatch } from "./embed";
 import { parseContent, type FieldHints } from "./parse";
+import { shouldKeepField } from "./field-filter";
 import { storeChunks } from "./store";
 
 export type IngestOptions = {
@@ -40,6 +41,15 @@ function pickString(row: Record<string, unknown>, field: string): string {
   return String(v);
 }
 
+function cleanText(text: string): string {
+  return text
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /**
  * Format a row as readable markdown block.
  * Produces `**Key**: Value` pairs for LLM comprehension, with long text fields
@@ -51,16 +61,16 @@ function formatRowAsMarkdown(
   allFields: string[],
 ): string {
   // Content field gets standalone paragraph for full semantic context
-  const contentValue = pickString(row, contentField).trim();
+  const contentValue = cleanText(pickString(row, contentField));
   const lines: string[] = [];
 
   // Emit other fields as compact key-value metadata block
   const otherFields = allFields.filter((f) =>
-    f !== contentField && row[f] != null && String(row[f]).trim() !== ""
+    shouldKeepField(f, contentField) && row[f] != null && String(row[f]).trim() !== ""
   );
   if (otherFields.length > 0) {
     const kvPairs = otherFields.map((f) => {
-      const val = pickString(row, f);
+      const val = cleanText(pickString(row, f));
       // Truncate long values in the header line (full value in content already)
       const short = val.length > 200 ? val.slice(0, 200) + "..." : val;
       return `**${f.replace(/_/g, " ")}**: ${short}`;
@@ -199,6 +209,12 @@ export async function runIngestion(opts: IngestOptions): Promise<{
     throw new Error("No rows found in dataset");
   }
 
+  const maxRows = opts.maxRows ?? 200;
+  const limitedRows = rows.slice(0, maxRows);
+  if (limitedRows.length < rows.length) {
+    console.log(`Limiting ingest to ${limitedRows.length}/${rows.length} rows`);
+  }
+
   // 2. Field mapping (CLI args override auto-detected)
   const contentField = opts.contentField || fieldHints.content || "";
   const titleField = opts.titleField || fieldHints.title || "";
@@ -215,7 +231,7 @@ export async function runIngestion(opts: IngestOptions): Promise<{
   // 3. Build metadata list
   const metaFieldsSet = new Set(opts.metadataFields ?? []);
   const autoMetaFields = Object.keys(rows[0]).filter(
-    (k) => k !== contentField && k !== titleField && k !== idField && k !== urlField,
+    (k) => shouldKeepField(k, contentField, titleField) && k !== idField && k !== urlField,
   );
   const metadataKeys =
     metaFieldsSet.size > 0
@@ -226,22 +242,27 @@ export async function runIngestion(opts: IngestOptions): Promise<{
   const sourceName = src.name;
 
   // Determine if this is tabular/structured data (multiple columns) vs prose
-  const allFieldNames = Object.keys(rows[0] || {});
+  const allFieldNames = Object.keys(limitedRows[0] || {});
   const isTabular = allFieldNames.length >= 3 && contentField;
 
-  const documents: IngestedRow[] = rows.flatMap((row, rowIndex) => {
-    const title = titleField ? pickString(row, titleField) : `row-${rowIndex + 1}`;
+  const documents: IngestedRow[] = limitedRows.flatMap((row, rowIndex) => {
+    const title = titleField ? cleanText(pickString(row, titleField)) : `row-${rowIndex + 1}`;
     const content = isTabular
       ? formatRowAsMarkdown(row, contentField, allFieldNames)
-      : pickString(row, contentField).trim();
+      : cleanText(pickString(row, contentField));
     if (!content) return [];
 
-    const rowId = idField ? pickString(row, idField) : `${rowIndex + 1}`;
-    const sourceUrl = urlField ? pickString(row, urlField) || null : null;
+    const rowId = idField ? cleanText(pickString(row, idField)) : `${rowIndex + 1}`;
+    const sourceUrl = urlField ? cleanText(pickString(row, urlField)) || null : null;
     const metadata: Record<string, unknown> = {};
     for (const key of metadataKeys) {
       if (key in row) metadata[key] = row[key];
     }
+
+    metadata.rowIndex = rowIndex;
+    metadata.contentField = contentField;
+    metadata.titleField = titleField || undefined;
+    metadata.documentType = isTabular ? "structured-row" : "freeform";
 
     return createChunks({
       sourceName,
@@ -283,7 +304,7 @@ export async function runIngestion(opts: IngestOptions): Promise<{
   );
 
   return {
-    rows: rows.length,
+    rows: limitedRows.length,
     chunks: documents.length,
     dir,
   };

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatAnswerSourceList, runRagGraph } from "@/server/rag/graph";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
-import { retrieveFromPythonService, toRagDocuments } from "@/server/rag/retrieval-client";
 import type { LlmProvider, RagDocument } from "@/shared/types";
 
 export const runtime = "nodejs";
@@ -55,29 +54,18 @@ export async function POST(request: Request) {
 
     let documents: RagDocument[] = [];
 
-    // Try Python service first (vector search)
-    const serviceResult = await retrieveFromPythonService(
-      payload.question,
-      undefined,
-      undefined,
-      payload.topK,
-    );
-
-    if (serviceResult && serviceResult.results.length > 0) {
-      documents = toRagDocuments(serviceResult.results).slice(0, payload.topK);
-    } else {
-      // Fallback: use client-supplied documents (OPFS keyword search)
-      documents = payload.documents.map((doc, i) => ({
-        id: doc.id ?? i,
-        sourceKey: doc.sourceKey ?? "",
-        sourceName: doc.sourceName ?? "",
-        sourceUrl: doc.sourceUrl ?? null,
-        title: doc.title ?? `Document ${i + 1}`,
-        content: doc.content,
-        metadata: doc.metadata ?? {},
-        chunkIndex: doc.chunkIndex ?? i,
-      }));
-    }
+    // Prefer client-supplied OPFS docs; they are dataset-scoped and local-first.
+    // Python service retrieval is not used here because it is not scoped to the active dataset.
+    documents = payload.documents.map((doc, i) => ({
+      id: doc.id ?? i,
+      sourceKey: doc.sourceKey ?? "",
+      sourceName: doc.sourceName ?? "",
+      sourceUrl: doc.sourceUrl ?? null,
+      title: doc.title ?? `Document ${i + 1}`,
+      content: doc.content,
+      metadata: doc.metadata ?? {},
+      chunkIndex: doc.chunkIndex ?? i,
+    }));
 
     const response = await runRagGraph(payload.question, {
       temperature: payload.temperature,

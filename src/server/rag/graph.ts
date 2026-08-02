@@ -50,14 +50,9 @@ async function answerQuestion(state: RagState) {
       {
         role: "system",
         content:
-          "You are a RAG assistant answering from data records and column summaries. " +
-          "Answer concisely — 1-3 sentences. " +
-          "Use the provided records to answer directly. If the question asks for aggregations " +
-          "(counts, averages, trends, comparisons), synthesize across all relevant records. " +
-          "When records contain location/type/status fields, group and compare them correctly. " +
-          "Never list raw data rows — give the synthesized answer. " +
-          "State numbers flatly: 'Gold cards average $450K limit across 2000 records.' " +
-          "If context lacks enough information, say 'Not enough context to answer.'",
+          "Answer the question from the provided documents. Be concise — 1-3 sentences. " +
+          "If the documents contain relevant information, answer directly even if partial. " +
+          "If the documents truly don't address the question, say 'Not enough context to answer.'",
       },
       {
         role: "user",

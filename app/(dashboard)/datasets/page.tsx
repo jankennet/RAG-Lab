@@ -400,6 +400,9 @@ export default function DatasetsPage() {
                     className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
                     placeholder="e.g., galileo-ai/ragbench"
                   />
+                  <p className="mt-2 text-xs text-muted">
+                    HF ingest keeps only documents/context fields. Answer, model, score, and eval columns are skipped.
+                  </p>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>

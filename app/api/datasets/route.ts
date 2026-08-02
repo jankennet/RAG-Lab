@@ -6,6 +6,39 @@ import { parseContent } from "@/server/ingestion";
 
 export const runtime = "nodejs";
 
+const DOCUMENT_FIELDS = ["documents", "document"];
+
+function pickDocumentsField(row: Record<string, unknown>, preferred?: string): string {
+  // If preferred field exists in row, use it regardless of name
+  if (preferred && row[preferred] != null) return preferred;
+
+  for (const candidate of DOCUMENT_FIELDS) {
+    const match = Object.keys(row).find((field) => field.toLowerCase() === candidate);
+    if (match) return match;
+  }
+
+  // Return preferred even for fields not named documents/document
+  if (preferred) return preferred;
+
+  return Object.keys(row)[0] ?? "";
+}
+
+function normalizeDocumentsValue(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item.trim();
+        if (item == null) return "";
+        return typeof item === "object" ? JSON.stringify(item) : String(item);
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  if (value == null) return "";
+  return typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+}
+
 const createDatasetSchema = z.object({
   name: z.string().min(1).max(256),
   source: z.enum(["huggingface"]),
@@ -64,46 +97,39 @@ export async function POST(request: Request) {
       }, { status: 502 });
     }
 
-    const contentField = body.contentField || fieldHints.content || Object.keys(rows[0])[0];
-    const titleField = body.titleField || fieldHints.title || "";
-
-    // Format rows as readable markdown when multiple fields exist (tabular data)
-    const allFieldNames = Object.keys(rows[0] || {});
-    const isTabular = allFieldNames.length >= 3;
-
+    const contentField = pickDocumentsField(rows[0], body.contentField || fieldHints.content || undefined);
     const chunks = rows.flatMap((row, i) => {
-      const title = titleField ? String(row[titleField] ?? "") : `row-${i}`;
-      const content: string = (() => {
-        if (!isTabular) return String(row[contentField] ?? JSON.stringify(row));
-        // Format as markdown: bold key-value pairs + content field paragraph
-        const parts: string[] = [];
-        const contentVal = contentField ? String(row[contentField] ?? "") : "";
-        for (const key of allFieldNames) {
-          if (key === contentField) continue;
-          const raw = row[key];
-          if (raw == null || String(raw).trim() === "") continue;
-          const val = String(raw);
-          const short = val.length > 200 ? val.slice(0, 200) + "..." : val;
-          parts.push(`**${key.replace(/_/g, " ")}**: ${short}`);
-        }
-        if (contentVal) {
-          parts.push("");
-          parts.push(contentVal);
-        }
-        return parts.join("\n").trim() || String(row[contentField] ?? JSON.stringify(row));
-      })();
-      const metadata: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(row)) {
-        if (k !== contentField && k !== titleField) metadata[k] = v;
+      const raw = row[contentField];
+      if (raw == null) return [];
+
+      // Array of documents: chunk each separately for clean focused chunks
+      if (Array.isArray(raw)) {
+        return raw.flatMap((doc, j) => {
+          const content = typeof doc === "string" ? doc.trim() : typeof doc === "object" ? JSON.stringify(doc, null, 2) : String(doc);
+          if (!content) return [];
+          const title = content.length > 60 ? content.slice(0, 60) + "..." : content;
+          return createChunks({
+            sourceName: body.name,
+            sourceUrl: body.sourceUrl ?? null,
+            sourceKeyPrefix: `${body.name}:row:${i}:doc:${j}`,
+            title: `row-${i}: ${title}`,
+            content,
+            metadata: {},
+          });
+        });
       }
+
+      // Single string or other value
+      const content = typeof raw === "string" ? raw.trim() : normalizeDocumentsValue(raw);
+      if (!content) return [];
 
       return createChunks({
         sourceName: body.name,
         sourceUrl: body.sourceUrl ?? null,
         sourceKeyPrefix: `${body.name}:row:${i}`,
-        title,
+        title: `row-${i}`,
         content,
-        metadata,
+        metadata: {},
       });
     });
 

@@ -193,7 +193,8 @@ async function generateAnswer(
           role: "system",
           content:
             "Answer the question concisely in 1-3 sentences using the context. " +
-            "If context lacks info, say 'Not enough context to answer.'",
+            "Answer from available info even if partial. " +
+            "If context truly doesn't address the question, say 'Not enough context to answer.'",
         },
         {
           role: "user",

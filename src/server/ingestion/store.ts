@@ -49,7 +49,7 @@ export function storeChunks(
     dataset: datasetName,
     source,
     sourceUrl,
-    rowCount: chunks.length > 0 ? new Set(chunks.map((c) => c.sourceKey.split(":chunk:")[0])).size : 0,
+    rowCount: chunks.length > 0 ? new Set(chunks.map((c) => c.sourceKey.replace(/:\d+$/, ""))).size : 0,
     chunkCount: chunks.length,
     embeddingDim,
     createdAt: Date.now(),

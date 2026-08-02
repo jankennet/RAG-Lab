@@ -40,6 +40,9 @@ export default function ChatPage() {
   const [missingKeyProvider, setMissingKeyProvider] = useState<LlmProvider | null>(null);
   const [datasets, setDatasets] = useState<OpfsDataset[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const totalChunks = datasets.reduce((sum, dataset) => sum + dataset.chunkCount, 0);
+  const activeDataset = datasets.find((dataset) => dataset.id === preferences.activeDatasetId);
+  const hasCurrentKey = Boolean(apiKeys[preferences.provider]);
 
   // Load available datasets for selector
   useEffect(() => {
@@ -52,7 +55,7 @@ export default function ChatPage() {
         {
           id: uuidv4(),
           role: "assistant",
-          content: "Hey, I'm your RAG assistant. Ask me anything about your indexed datasets.",
+          content: "Hey, I'm your RAG Lab assistant. Ask anything about your indexed datasets and local retrieval flow.",
           timestamp: Date.now(),
         },
       ]);

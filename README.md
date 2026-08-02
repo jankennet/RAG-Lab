@@ -1,6 +1,6 @@
 # RAG LAB
 
-Local-first RAG system. Data stays in your browser (OPFS). API keys in localStorage. No server DB.
+Browser-native, local-first RAG lab. Data stays in your browser (OPFS). API keys in localStorage. No server DB.
 
 **Stack:**
 - Orchestration: LangGraph.js
@@ -19,7 +19,7 @@ Local-first RAG system. Data stays in your browser (OPFS). API keys in localStor
 - `app/api/benchmarks/` RAG quality evaluation
 - `app/api/models/` Model listing
 - `app/api/ranking/` Model comparison (by dataset × model)
-- `app/(dashboard)/ranking/` Ranking UI
+- `app/(dashboard)/compare/` Compare UI with local trends
 - `scripts/ingest.ts` CLI dataset ingestion (all formats)
 - `scripts/benchmark.ts` CLI benchmark runner
 - `python-service/` Optional Python microservice (OCR, vector search)
@@ -78,4 +78,4 @@ Or: `npm run rag-service`
 - Text formats parsed client-side. Binary formats sent to server.
 - Image PDFs/images require Python service with Tesseract.
 - Benchmarks persist to `data/benchmarks/` as compact JSON (~2-5KB per run).
-- Ranking page at `/ranking` compares models by F1, latency, faithfulness.
+- Compare page at `/compare` compares models by F1, latency, faithfulness, and run trends.

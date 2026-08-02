@@ -28,7 +28,7 @@ function detectHints(fields: string[]): FieldHints {
   const lower = fields.map((f) => f.toLowerCase());
   const titleIdx = lower.findIndex((f) => ["title", "name", "question", "headline"].includes(f));
   const contentIdx = lower.findIndex((f) =>
-    ["text", "content", "documents", "document", "body", "description", "passage"].includes(f),
+    ["text", "content", "documents", "document", "body", "description", "passage", "context"].includes(f),
   );
   const idIdx = lower.findIndex((f) => ["id", "uuid", "index", "row_id"].includes(f));
   const urlIdx = lower.findIndex((f) => ["url", "link", "source_url", "uri"].includes(f));

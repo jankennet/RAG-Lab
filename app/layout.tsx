@@ -14,8 +14,8 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Multi-Source Agentic RAG Platform",
-  description: "Local-first RAG platform: LangGraph.js, NVIDIA NIM, Hugging Face Datasets, OPFS storage."
+  title: "RAG Lab",
+  description: "Browser-native, local-first RAG lab for building, comparing, and evaluating retrieval pipelines."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
