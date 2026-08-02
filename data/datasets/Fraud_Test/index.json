@@ -1,9 +1,0 @@
-{
-  "dataset": "Fraud_Test",
-  "source": "python-ingest",
-  "sourceUrl": "/tmp/tmpwoqs40w0.csv",
-  "rowCount": 10,
-  "chunkCount": 22,
-  "embeddingDim": 1024,
-  "createdAt": 1785412312.5145154
-}
