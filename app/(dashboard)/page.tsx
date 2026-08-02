@@ -267,7 +267,7 @@ export default function ChatPage() {
               <input
                 type="range"
                 min={1}
-                max={20}
+                max={200}
                 step={1}
                 value={preferences.topK ?? 4}
                 onChange={(e) => setTopK(Number(e.target.value))}

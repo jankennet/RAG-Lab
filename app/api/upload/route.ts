@@ -45,7 +45,33 @@ function extractText(buffer: Buffer): string {
 }
 
 function extractCsv(buffer: Buffer): string {
-  return buffer.toString("utf-8");
+  const raw = buffer.toString("utf-8").trim();
+  const lines = raw.split("\n").filter(Boolean);
+  if (lines.length < 2) return raw;
+
+  const headers = lines[0].split(",").map((h) => h.trim());
+  const rows = lines.slice(1).map((line) =>
+    line.split(",").map((c) => c.trim()),
+  );
+
+  // Format as markdown table
+  const mdLines: string[] = [];
+  mdLines.push(`| ${headers.join(" | ")} |`);
+  mdLines.push(`| ${headers.map(() => "---").join(" | ")} |`);
+
+  for (const row of rows.slice(0, 200)) {
+    // Pad/slice row to match header count
+    const padded = [...row];
+    while (padded.length < headers.length) padded.push("");
+    mdLines.push(`| ${padded.slice(0, headers.length).join(" | ")} |`);
+  }
+
+  if (rows.length > 200) {
+    mdLines.push("");
+    mdLines.push(`_${rows.length - 200} more rows not shown_`);
+  }
+
+  return mdLines.join("\n");
 }
 
 function extractJson(buffer: Buffer): string {
@@ -79,8 +105,22 @@ async function extractXlsx(buffer: Buffer): Promise<string> {
     const ws = wb.Sheets[sheetName];
     const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
     if (csv.trim()) {
-      parts.push(`Sheet: ${sheetName}`);
-      parts.push(csv);
+      parts.push(`## Sheet: ${sheetName}`);
+      const lines = csv.trim().split("\n").filter(Boolean);
+      if (lines.length >= 2) {
+        const headers = lines[0].split(",").map((h) => h.trim());
+        parts.push(`| ${headers.join(" | ")} |`);
+        parts.push(`| ${headers.map(() => "---").join(" | ")} |`);
+        const maxRows = Math.min(lines.length - 1, 200);
+        for (let i = 1; i <= maxRows; i++) {
+          const cells = lines[i].split(",").map((c) => c.trim());
+          const padded = [...cells];
+          while (padded.length < headers.length) padded.push("");
+          parts.push(`| ${padded.slice(0, headers.length).join(" | ")} |`);
+        }
+      } else {
+        parts.push(csv);
+      }
     }
   }
   return parts.join("\n\n");

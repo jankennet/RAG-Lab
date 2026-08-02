@@ -67,9 +67,31 @@ export async function POST(request: Request) {
     const contentField = body.contentField || fieldHints.content || Object.keys(rows[0])[0];
     const titleField = body.titleField || fieldHints.title || "";
 
+    // Format rows as readable markdown when multiple fields exist (tabular data)
+    const allFieldNames = Object.keys(rows[0] || {});
+    const isTabular = allFieldNames.length >= 3;
+
     const chunks = rows.flatMap((row, i) => {
       const title = titleField ? String(row[titleField] ?? "") : `row-${i}`;
-      const content = String(row[contentField] ?? JSON.stringify(row));
+      const content: string = (() => {
+        if (!isTabular) return String(row[contentField] ?? JSON.stringify(row));
+        // Format as markdown: bold key-value pairs + content field paragraph
+        const parts: string[] = [];
+        const contentVal = contentField ? String(row[contentField] ?? "") : "";
+        for (const key of allFieldNames) {
+          if (key === contentField) continue;
+          const raw = row[key];
+          if (raw == null || String(raw).trim() === "") continue;
+          const val = String(raw);
+          const short = val.length > 200 ? val.slice(0, 200) + "..." : val;
+          parts.push(`**${key.replace(/_/g, " ")}**: ${short}`);
+        }
+        if (contentVal) {
+          parts.push("");
+          parts.push(contentVal);
+        }
+        return parts.join("\n").trim() || String(row[contentField] ?? JSON.stringify(row));
+      })();
       const metadata: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(row)) {
         if (k !== contentField && k !== titleField) metadata[k] = v;

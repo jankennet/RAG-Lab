@@ -5,6 +5,7 @@ import Link from "next/link";
 import { loadIndex, loadDocuments, loadBenchmarkRuns, saveBenchmarkRun } from "@/client/opfs";
 import type { OpfsDataset, BenchmarkRun, BenchmarkMetrics } from "@/client/opfs";
 import { useDashboard } from "../components/DashboardProvider";
+import ModelSelector from "../components/ModelSelector";
 
 function ScoreBadge({ score }: { score: number }) {
   const pct = (score * 100).toFixed(1);
@@ -28,6 +29,8 @@ export default function BenchmarksPage() {
 
   const [datasetId, setDatasetId] = useState("");
   const [limit, setLimit] = useState(10);
+  const [benchProvider, setBenchProvider] = useState(preferences.provider);
+  const [benchModel, setBenchModel] = useState(preferences.model);
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
 
@@ -103,9 +106,9 @@ export default function BenchmarksPage() {
           datasetName: dataset?.name ?? "Unknown",
           limit,
           documents: docs,
-          provider: preferences.provider,
-          model: preferences.model,
-          apiKey: apiKeys[preferences.provider],
+          provider: benchProvider,
+          model: benchModel,
+          apiKey: apiKeys[benchProvider],
         }),
       });
 
@@ -164,12 +167,19 @@ export default function BenchmarksPage() {
                 value={limit}
                 onChange={(e) => setLimit(Number(e.target.value))}
                 min={1}
-                max={100}
+                max={200}
                 className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
               />
             </div>
-            <div className="text-xs text-muted mb-2">
-              Model: <span className="font-mono text-text">{preferences.model}</span> via {preferences.provider}
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-muted">Model</label>
+              <ModelSelector
+                provider={benchProvider}
+                model={benchModel}
+                apiKey={apiKeys[benchProvider]}
+                onProviderChange={setBenchProvider}
+                onModelChange={setBenchModel}
+              />
             </div>
             {triggerError && (
               <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">
@@ -199,7 +209,7 @@ export default function BenchmarksPage() {
                 </span>
               </div>
               <p className="text-xs text-muted mt-3 font-mono">
-                &gt; Benchmarking {limit} questions with {preferences.provider}/{preferences.model}
+                &gt; Benchmarking {limit} questions with {benchProvider}/{benchModel}
               </p>
             </div>
           )}

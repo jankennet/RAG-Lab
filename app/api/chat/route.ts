@@ -20,7 +20,7 @@ const documentSchema = z.object({
 
 const chatRequestSchema = z.object({
   question: z.string().trim().min(1).max(8000),
-  topK: z.coerce.number().int().min(1).max(100).default(4),
+  topK: z.coerce.number().int().min(1).max(200).default(4),
   temperature: z.coerce.number().min(0).max(2).default(0.2),
   topP: z.coerce.number().min(0).max(1).default(0.9),
   maxTokens: z.coerce.number().int().min(1).max(32768).default(4096),

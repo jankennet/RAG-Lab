@@ -41,6 +41,43 @@ function pickString(row: Record<string, unknown>, field: string): string {
 }
 
 /**
+ * Format a row as readable markdown block.
+ * Produces `**Key**: Value` pairs for LLM comprehension, with long text fields
+ * extracted into dedicated paragraphs for complete context fidelity.
+ */
+function formatRowAsMarkdown(
+  row: Record<string, unknown>,
+  contentField: string,
+  allFields: string[],
+): string {
+  // Content field gets standalone paragraph for full semantic context
+  const contentValue = pickString(row, contentField).trim();
+  const lines: string[] = [];
+
+  // Emit other fields as compact key-value metadata block
+  const otherFields = allFields.filter((f) =>
+    f !== contentField && row[f] != null && String(row[f]).trim() !== ""
+  );
+  if (otherFields.length > 0) {
+    const kvPairs = otherFields.map((f) => {
+      const val = pickString(row, f);
+      // Truncate long values in the header line (full value in content already)
+      const short = val.length > 200 ? val.slice(0, 200) + "..." : val;
+      return `**${f.replace(/_/g, " ")}**: ${short}`;
+    });
+    lines.push(kvPairs.join(" | "));
+  }
+
+  // Main content as dedicated paragraph
+  if (contentValue) {
+    lines.push("");
+    lines.push(contentValue);
+  }
+
+  return lines.join("\n").trim();
+}
+
+/**
  * Extract text from binary files (DOCX, XLSX, PDF, images).
  * Uses mammoth/xlsx for office docs, delegates PDF/images to Python OCR service.
  */
@@ -188,9 +225,15 @@ export async function runIngestion(opts: IngestOptions): Promise<{
   // 4. Build documents with ROS chunker
   const sourceName = src.name;
 
+  // Determine if this is tabular/structured data (multiple columns) vs prose
+  const allFieldNames = Object.keys(rows[0] || {});
+  const isTabular = allFieldNames.length >= 3 && contentField;
+
   const documents: IngestedRow[] = rows.flatMap((row, rowIndex) => {
     const title = titleField ? pickString(row, titleField) : `row-${rowIndex + 1}`;
-    const content = pickString(row, contentField).trim();
+    const content = isTabular
+      ? formatRowAsMarkdown(row, contentField, allFieldNames)
+      : pickString(row, contentField).trim();
     if (!content) return [];
 
     const rowId = idField ? pickString(row, idField) : `${rowIndex + 1}`;

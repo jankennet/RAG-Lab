@@ -7,7 +7,7 @@ import {
   loadIndex,
   createDataset,
   deleteDataset,
-  chunkText,
+  smartChunkText,
   makeDocuments,
   updateDatasetChunks,
 } from "@/client/opfs";
@@ -292,7 +292,7 @@ export default function DatasetsPage() {
           (mergedMetadata.files as string[]).push(pf.filename);
         }
 
-        const chunks = chunkText(allContent.trim(), 1000, 150);
+        const chunks = smartChunkText(allContent.trim(), { chunkSize: 1000, chunkOverlap: 150 });
         const docs = makeDocuments(name.trim(), null, name.trim(), chunks, mergedMetadata);
 
         setUploadProgress(`Saving ${chunks.length} chunks to OPFS...`);

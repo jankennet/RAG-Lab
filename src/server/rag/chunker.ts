@@ -210,10 +210,11 @@ export class StructuredChunker implements Chunker {
 
   private serializeEntry(key: string, value: unknown): string | null {
     if (value == null) return null;
-    if (typeof value === "string") return `${key}: ${value}`;
-    if (typeof value === "number" || typeof value === "boolean") return `${key}: ${value}`;
-    if (Array.isArray(value)) return `${key}: [${value.map(String).join(", ")}]`;
-    return `${key}: ${JSON.stringify(value)}`;
+    const displayKey = key.replace(/_/g, " ");
+    if (typeof value === "string") return `**${displayKey}**: ${value}`;
+    if (typeof value === "number" || typeof value === "boolean") return `**${displayKey}**: ${value}`;
+    if (Array.isArray(value)) return `**${displayKey}**: ${value.map(String).join(", ")}`;
+    return `**${displayKey}**: ${JSON.stringify(value)}`;
   }
 }
 

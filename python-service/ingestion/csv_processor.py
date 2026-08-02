@@ -167,36 +167,52 @@ def _format_row_as_sentence(
     profiles: list[ColumnProfile],
     name_col: str | None = None,
 ) -> str:
-    """Convert one data row into a readable natural-language sentence."""
-    parts: list[str] = []
+    """Convert one data row into a readable markdown block.
+
+    Each row becomes a markdown snippet with a header line and field-key-value pairs,
+    optimized for LLM reading comprehension. Numeric/category fields listed first
+    (highest signal), then text/date fields.
+    """
     profile_map = {p.name: p for p in profiles}
 
-    for col in row:
-        val = _format_value(row[col], profile_map.get(col, ColumnProfile(name=col, dtype="text", unique_ratio=0, null_ratio=0, sample_values=[])).dtype)
+    # Separate fields by semantic weight: heavy-signal first
+    high_order: list[tuple[str, str, str]] = []  # (display_name, val, col_type)
+    detail_fields: list[tuple[str, str, str]] = []
 
+    for col in row:
+        prof = profile_map.get(col)
+        col_type = prof.dtype if prof else "text"
+        val = _format_value(row[col], col_type)
         if val == "N/A":
             continue
-
-        col_type = profile_map.get(col, ColumnProfile(name=col, dtype="text", unique_ratio=0, null_ratio=0, sample_values=[])).dtype
         display_name = col.replace("_", " ").title()
+        entry = (display_name, val, col_type)
 
-        if col_type == "id":
-            parts.append(f"{display_name}={val}")
-        elif col_type == "bool":
-            parts.append(f"{display_name}={val}")
-        elif col_type == "numeric":
-            parts.append(f"{display_name}={val}")
-        elif col_type == "category":
-            parts.append(f"{display_name}={val}")
-        elif col_type == "date":
-            parts.append(f"{display_name}={val}")
+        if col_type in ("id", "numeric", "category", "bool"):
+            high_order.append(entry)
         else:
-            parts.append(f"{display_name}={val}")
+            detail_fields.append(entry)
 
-    if not parts:
+    if not high_order and not detail_fields:
         return "Empty record."
 
-    return " | ".join(parts)
+    lines: list[str] = []
+
+    # Inline key-value header (compact, scannable by LLM)
+    kv_pairs: list[str] = []
+    for name, val, _ in high_order:
+        kv_pairs.append(f"**{name}**: {val}")
+    for name, val, _ in detail_fields:
+        kv_pairs.append(f"**{name}**: {val}")
+
+    lines.append(" | ".join(kv_pairs))
+
+    # For long text fields, add a dedicated block (higher context fidelity)
+    for name, val, ctype in detail_fields:
+        if ctype == "text" and len(val) > 100:
+            lines.append(f"\n### {name}\n{val}")
+
+    return "\n".join(lines)
 
 
 def _generate_summary_chunks(

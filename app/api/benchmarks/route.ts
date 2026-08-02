@@ -38,7 +38,67 @@ type BenchmarkRun = {
   details: CompactQuestionResult[];
 };
 
-export const runtime = "nodejs";
+/** Generate a unique natural-language question from document content using LLM.
+ *
+ *  Each doc produces a diverse question answerable by that doc's content,
+ *  making benchmark measure real RAG quality instead of identity-matching.
+ */
+async function generateQuestionFromDoc(
+  doc: { title: string; content: string; sourceKey: string },
+  index: number,
+  total: number,
+  apiKeys: Record<string, { key: string }>,
+  provider: string,
+  model: string,
+): Promise<string> {
+  const entry = apiKeys[provider];
+  if (!entry?.key) return doc.title || doc.content.slice(0, 200);
+
+  // Truncate content to keep cost low — 800 chars is enough for a question
+  const contentSnippet = (doc.content || "").slice(0, 800).trim();
+  const titleSnippet = (doc.title || "(untitled)").slice(0, 120);
+
+  const prompt = `You are generating diverse benchmark questions for RAG evaluation.
+
+Document title: ${titleSnippet}
+Document content: ${contentSnippet}
+
+Generate EXACTLY ONE natural-language question (under 120 chars) that:
+- Can be answered using ONLY the document above
+- Is diverse from other questions — vary query type, subject, and phrasing
+- Sounds like a real user query, NOT a database field inspection
+- Is self-contained (anyone can understand it without seeing the document)
+- Ends with a question mark
+
+Return ONLY the question text — no labels, no quotes, no explanations.`;
+
+  try {
+    const response = await callLlm({
+      provider: provider as "nvidia" | "openai" | "anthropic",
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You output exactly one question and nothing else. No prefixes, no formatting, no quotes.",
+        },
+        { role: "user", content: prompt },
+      ],
+      apiKeys: apiKeys as Record<string, { key: string }>,
+      temperature: 0.7 + (index % 10) * 0.03, // varied temp for diversity
+      maxTokens: 128,
+    });
+
+    const cleaned = response.replace(/^["'\s]+|["'\s]+$/g, "").trim();
+    if (cleaned && cleaned.length > 5 && (cleaned.includes("?") || cleaned.length < 200)) {
+      return cleaned.slice(0, 200);
+    }
+  } catch {
+    // fall through to title fallback
+  }
+
+  return doc.title || doc.content.slice(0, 200);
+}
 
 // ── Schema ─────────────────────────────────────────────────────
 
@@ -51,7 +111,7 @@ const documentSchema = z.object({
 const runBenchmarkSchema = z.object({
   datasetId: z.string().min(1),
   datasetName: z.string().min(1).default("Unknown"),
-  limit: z.coerce.number().int().positive().max(100).default(10),
+  limit: z.coerce.number().int().positive().max(200).default(10),
   documents: z.array(documentSchema).min(1),
   provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
   model: z.string().min(1).default("meta/llama-3.3-70b-instruct"),
@@ -183,8 +243,30 @@ export async function POST(request: Request) {
       content: d.content,
     }));
 
-    // Pick `limit` docs as questions
-    const questions = pickQuestions(docs, limit);
+    // Pick `limit` docs as question candidates
+    const candidateDocs = pickQuestions(docs, limit);
+
+    // Generate diverse natural-language questions from each document
+    const questions: Array<{
+      sourceKey: string;
+      question: string;
+      reference: string;
+      title: string;
+    }> = [];
+    for (let i = 0; i < candidateDocs.length; i++) {
+      const d = candidateDocs[i];
+      const question = await generateQuestionFromDoc(
+        d, i, candidateDocs.length,
+        apiKeys, provider, model,
+      );
+      questions.push({
+        sourceKey: d.sourceKey,
+        question,
+        reference: d.content,
+        title: d.title || "",
+      });
+    }
+
     const corpus = docs;
 
     const results: CompactQuestionResult[] = [];
@@ -196,7 +278,7 @@ export async function POST(request: Request) {
       // Search excluding the question doc itself
       const topK = keywordSearch(
         corpus.filter((d) => d.sourceKey !== q.sourceKey),
-        q.title || q.content.slice(0, 200),
+        q.question,
         5,
       );
       const contextText = topK
@@ -206,14 +288,14 @@ export async function POST(request: Request) {
       // ── Parallel: evaluate retrieval + generate answer ──
       const [gen, answer] = await Promise.all([
         evaluateGeneration(
-          q.title || q.content.slice(0, 200),
+          q.question,
           contextText,
           apiKeys,
           provider,
           model,
         ),
         generateAnswer(
-          q.title || q.content.slice(0, 200),
+          q.question,
           contextText,
           apiKeys,
           provider,
@@ -222,13 +304,13 @@ export async function POST(request: Request) {
       ]);
 
       // Token F1 between generated answer and reference content
-      const f1 = tokenF1(answer, q.content);
+      const f1 = tokenF1(answer, q.reference);
       totalTokenF1 += f1;
 
       const elapsed = performance.now() - t0;
 
       results.push({
-        questionLabel: (q.title || q.content).slice(0, 80),
+        questionLabel: q.question.slice(0, 120),
         retrievalCount: topK.length,
         retrievedDocTitles: topK.map((d) => d.title || "(untitled)"),
         latencyMs: elapsed,

@@ -45,7 +45,7 @@ export async function retrieveFromPythonService(
       signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
         query,
-        top_k: Math.min(topK, 50),
+        top_k: Math.min(topK, 200),
         dataset_dir: datasetDir,
         chunks_data: chunksData,
         use_keyword_fallback: true,
