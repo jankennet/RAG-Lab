@@ -12,7 +12,9 @@ type CompactQuestionResult = {
   answerRelevance: number;
   contextUtilization: number;
   tokenF1: number;
-  questionLabel: string;
+  question: string;
+  groundTruth: string;
+  generatedAnswer: string;
   retrievalCount: number;
   retrievedDocTitles: string[];
 };
@@ -37,86 +39,6 @@ type BenchmarkRun = {
   metrics: BenchmarkMetrics;
   details: CompactQuestionResult[];
 };
-
-/** Generate a unique natural-language question from document content using LLM.
- *
- *  Each doc produces a diverse question answerable by that doc's content,
- *  making benchmark measure real RAG quality instead of identity-matching.
- */
-async function generateQuestionFromDoc(
-  doc: { title: string; content: string; sourceKey: string },
-  index: number,
-  total: number,
-  apiKeys: Record<string, { key: string }>,
-  provider: string,
-  model: string,
-): Promise<string> {
-  const entry = apiKeys[provider];
-  if (!entry?.key) return doc.title || doc.content.slice(0, 200);
-
-  // Truncate content to keep cost low — 800 chars is enough for a question
-  const contentSnippet = (doc.content || "").slice(0, 800).trim();
-  const titleSnippet = (doc.title || "(untitled)").slice(0, 120);
-
-  const prompt = `You are generating diverse benchmark questions for RAG evaluation.
-
-Document title: ${titleSnippet}
-Document content: ${contentSnippet}
-
-Generate EXACTLY ONE natural-language question (under 120 chars) that:
-- Can be answered using ONLY the document above
-- Is diverse from other questions — vary query type, subject, and phrasing
-- Sounds like a real user query, NOT a database field inspection
-- Is self-contained (anyone can understand it without seeing the document)
-- Ends with a question mark
-
-Return ONLY the question text — no labels, no quotes, no explanations.`;
-
-  try {
-    const response = await callLlm({
-      provider: provider as "nvidia" | "openai" | "anthropic",
-      model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You output exactly one question and nothing else. No prefixes, no formatting, no quotes.",
-        },
-        { role: "user", content: prompt },
-      ],
-      apiKeys: apiKeys as Record<string, { key: string }>,
-      temperature: 0.7 + (index % 10) * 0.03, // varied temp for diversity
-      maxTokens: 128,
-    });
-
-    const cleaned = response.replace(/^["'\s]+|["'\s]+$/g, "").trim();
-    if (cleaned && cleaned.length > 5 && (cleaned.includes("?") || cleaned.length < 200)) {
-      return cleaned.slice(0, 200);
-    }
-  } catch {
-    // fall through to title fallback
-  }
-
-  return doc.title || doc.content.slice(0, 200);
-}
-
-// ── Schema ─────────────────────────────────────────────────────
-
-const documentSchema = z.object({
-  sourceKey: z.string().optional(),
-  title: z.string().optional(),
-  content: z.string(),
-});
-
-const runBenchmarkSchema = z.object({
-  datasetId: z.string().min(1),
-  datasetName: z.string().min(1).default("Unknown"),
-  limit: z.coerce.number().int().positive().max(200).default(10),
-  documents: z.array(documentSchema).min(1),
-  provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
-  model: z.string().min(1).default("meta/llama-3.3-70b-instruct"),
-  apiKey: z.string().optional(),
-});
 
 // ── LLM evaluation ────────────────────────────────────────────
 
@@ -215,16 +137,28 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-// ── POST: run benchmark ───────────────────────────────────────
+// ── Schema ─────────────────────────────────────────────────────
 
-/** Deterministic: sort by sourceKey for stable question selection */
-function pickQuestions(
-  docs: Array<{ sourceKey: string; title: string; content: string }>,
-  limit: number,
-): Array<{ sourceKey: string; title: string; content: string }> {
-  const sorted = [...docs].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
-  return sorted.slice(0, Math.min(limit, sorted.length));
-}
+const questionSchema = z.object({
+  question: z.string().min(1),
+  groundTruth: z.string().min(1),
+});
+
+const runBenchmarkSchema = z.object({
+  datasetId: z.string().min(1),
+  datasetName: z.string().min(1).default("Unknown"),
+  questions: z.array(questionSchema).min(1).max(200),
+  documents: z.array(z.object({
+    sourceKey: z.string().optional(),
+    title: z.string().optional(),
+    content: z.string(),
+  })).min(1),
+  provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
+  model: z.string().min(1).default("meta/llama-3.3-70b-instruct"),
+  apiKey: z.string().optional(),
+});
+
+// ── POST: run benchmark ───────────────────────────────────────
 
 export async function POST(request: Request) {
   try {
@@ -232,86 +166,46 @@ export async function POST(request: Request) {
     if (guard) return guard;
 
     const body = runBenchmarkSchema.parse(await request.json());
-    const { datasetId, datasetName, limit, documents, provider, model } = body;
+    const { datasetId, datasetName, questions: inputQuestions, documents, provider, model } = body;
 
     const apiKeys: Record<string, { key: string }> = {};
     if (body.apiKey) apiKeys[body.provider] = { key: body.apiKey };
 
     // Normalize documents
-    const docs = documents.map((d, i) => ({
+    const corpus = documents.map((d, i) => ({
       sourceKey: d.sourceKey ?? `doc-${i}`,
       title: d.title ?? "",
       content: d.content,
     }));
 
-    // Pick `limit` docs as question candidates
-    const candidateDocs = pickQuestions(docs, limit);
-
-    // Generate diverse natural-language questions from each document
-    const questions: Array<{
-      sourceKey: string;
-      question: string;
-      reference: string;
-      title: string;
-    }> = [];
-    for (let i = 0; i < candidateDocs.length; i++) {
-      const d = candidateDocs[i];
-      const question = await generateQuestionFromDoc(
-        d, i, candidateDocs.length,
-        apiKeys, provider, model,
-      );
-      questions.push({
-        sourceKey: d.sourceKey,
-        question,
-        reference: d.content,
-        title: d.title || "",
-      });
-    }
-
-    const corpus = docs;
-
     const results: CompactQuestionResult[] = [];
     let totalTokenF1 = 0;
 
-    for (const q of questions) {
+    for (const q of inputQuestions) {
       const t0 = performance.now();
 
-      // Search excluding the question doc itself
-      const topK = keywordSearch(
-        corpus.filter((d) => d.sourceKey !== q.sourceKey),
-        q.question,
-        5,
-      );
+      // Search corpus for relevant context
+      const topK = keywordSearch(corpus, q.question, 5);
       const contextText = topK
         .map((d, i) => `[${i + 1}] ${d.title}\n${d.content.slice(0, 500)}`)
         .join("\n\n");
 
       // ── Parallel: evaluate retrieval + generate answer ──
       const [gen, answer] = await Promise.all([
-        evaluateGeneration(
-          q.question,
-          contextText,
-          apiKeys,
-          provider,
-          model,
-        ),
-        generateAnswer(
-          q.question,
-          contextText,
-          apiKeys,
-          provider,
-          model,
-        ),
+        evaluateGeneration(q.question, contextText, apiKeys, provider, model),
+        generateAnswer(q.question, contextText, apiKeys, provider, model),
       ]);
 
-      // Token F1 between generated answer and reference content
-      const f1 = tokenF1(answer, q.reference);
+      // Token F1 between generated answer and GROUND TRUTH (not doc content)
+      const f1 = tokenF1(answer, q.groundTruth);
       totalTokenF1 += f1;
 
       const elapsed = performance.now() - t0;
 
       results.push({
-        questionLabel: q.question.slice(0, 120),
+        question: q.question,
+        groundTruth: q.groundTruth,
+        generatedAnswer: answer,
         retrievalCount: topK.length,
         retrievedDocTitles: topK.map((d) => d.title || "(untitled)"),
         latencyMs: elapsed,
@@ -348,7 +242,6 @@ export async function POST(request: Request) {
       details: results,
     };
 
-    // Persistence handled client-side (OPFS)
     return NextResponse.json(run);
   } catch (error) {
     if (error instanceof z.ZodError) {

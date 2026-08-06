@@ -100,7 +100,7 @@ function DetailRow({ q, idx }: { q: CompactQuestionResult; idx: number }) {
       >
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-xs text-muted font-mono shrink-0">Q{idx + 1}</span>
-          <p className="text-sm truncate leading-snug">{q.questionLabel || "(empty question)"}</p>
+          <p className="text-sm truncate leading-snug">{q.question || "(empty question)"}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <ScoreBadge score={q.tokenF1} />
@@ -131,6 +131,15 @@ function DetailRow({ q, idx }: { q: CompactQuestionResult; idx: number }) {
               <span className="text-xs text-muted block">Context Util</span>
               <ScoreBadge score={q.contextUtilization} />
             </div>
+          </div>
+
+          <div className="bg-bg-alt rounded-lg px-3 py-2">
+            <span className="text-xs text-muted block mb-1">Ground Truth</span>
+            <p className="text-xs text-text leading-relaxed">{q.groundTruth || "(none)"}</p>
+          </div>
+          <div className="bg-bg-alt rounded-lg px-3 py-2">
+            <span className="text-xs text-muted block mb-1">Generated Answer</span>
+            <p className="text-xs text-text leading-relaxed">{q.generatedAnswer || "(none)"}</p>
           </div>
 
           <div>

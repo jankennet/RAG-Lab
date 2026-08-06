@@ -258,7 +258,9 @@ export type CompactQuestionResult = {
   answerRelevance: number;
   contextUtilization: number;
   tokenF1: number;
-  questionLabel: string;
+  question: string;
+  groundTruth: string;
+  generatedAnswer: string;
   retrievalCount: number;
   retrievedDocTitles: string[];
 };

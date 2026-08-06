@@ -9,6 +9,7 @@ const navGroups = [
     items: [
       { href: "/datasets", label: "Datasets" },
       { href: "/benchmarks", label: "Benchmarks" },
+      { href: "/benchmark-datasets", label: "Question Sets" },
       { href: "/compare", label: "Compare" },
     ],
   },
@@ -81,7 +82,7 @@ export default function Sidebar() {
       {/* Footer */}
       <div className="mt-auto pt-4 border-t border-line">
         <a
-          href="https://github.com/jankennet/Multi-Source-Agentic-RAG-Platform.git"
+          href="https://github.com/jankennet/RAG-Lab"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 px-3 py-2 text-xs text-muted hover:text-text transition-colors rounded-lg"
