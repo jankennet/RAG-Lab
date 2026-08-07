@@ -6,7 +6,6 @@ import { PROVIDERS, type LlmProvider } from "@/shared/types";
 interface ModelSelectorProps {
   provider: LlmProvider;
   model: string;
-  apiKey?: string;
   onProviderChange: (provider: LlmProvider) => void;
   onModelChange: (model: string) => void;
 }

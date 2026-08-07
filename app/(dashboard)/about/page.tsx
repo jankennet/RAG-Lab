@@ -41,7 +41,7 @@ export default function AboutPage() {
           <p className="text-xs uppercase tracking-[0.25em] text-muted">Browser-native lab</p>
           <h1 className="text-3xl font-bold tracking-tight">Import, chunk, embed, store, compare.</h1>
           <p className="max-w-3xl text-sm text-muted leading-6">
-            Local-first RAG lab. Data stays in OPFS. API keys and UI preferences stay in localStorage. No server DB.
+            Local-first RAG lab. Data stays in OPFS. Preferences stay in localStorage. API keys are encrypted server-side in httpOnly cookies. No server DB.
           </p>
         </section>
 
@@ -55,9 +55,9 @@ export default function AboutPage() {
 
           <div className="rounded-2xl border border-line bg-bg-alt p-5 space-y-2">
             <p className="text-xs uppercase tracking-wider text-muted">localStorage</p>
-            <p className="font-medium text-text">API keys and preferences</p>
+            <p className="font-medium text-text">Preferences (no API keys)</p>
             <p className="text-sm text-muted">Provider, model, dataset, and inference settings stay in the browser.</p>
-            <p className="text-sm text-muted">Nothing here needs a backend database.</p>
+            <p className="text-sm text-muted">API keys are encrypted server-side. Nothing here needs a backend database.</p>
           </div>
         </section>
 

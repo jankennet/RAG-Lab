@@ -5,12 +5,23 @@ import type { LlmProvider } from "@/shared/types";
 const ALGO = "aes-256-gcm";
 const COOKIE_PREFIX = "ms_rag_key_";
 
-// process.env.SESSION_KEY_SECRET must be a 32-byte value, e.g.:
+// process.env.SESSION_KEY_SECRET must be a 64-character hex string (= 32 bytes):
 //   openssl rand -hex 32
 function getSecret(): Buffer {
   const raw = process.env.SESSION_KEY_SECRET;
-  if (!raw) throw new Error("SESSION_KEY_SECRET is not set");
-  return Buffer.from(raw, "hex"); // 32 bytes
+  if (!raw) {
+    throw new Error(
+      "SESSION_KEY_SECRET is not set. Generate one with: openssl rand -hex 32"
+    );
+  }
+  const buf = Buffer.from(raw, "hex");
+  if (buf.length !== 32) {
+    throw new Error(
+      `SESSION_KEY_SECRET must decode to exactly 32 bytes (got ${buf.length}). ` +
+        "Value appears to be non-hex or wrong length. Generate one with: openssl rand -hex 32"
+    );
+  }
+  return buf;
 }
 
 function encrypt(plaintext: string): string {
@@ -41,7 +52,7 @@ export async function setProviderKeyCookie(provider: LlmProvider, key: string) {
   const store = await cookies();
   store.set(`${COOKIE_PREFIX}${provider}`, encrypt(key), {
     httpOnly: true,
-    // secure: true,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     path: "/",
     maxAge: 60 * 60 * 8, // 8h — tune to taste; this is a session-length key, not a permanent one

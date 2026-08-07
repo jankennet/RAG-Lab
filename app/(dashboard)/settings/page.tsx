@@ -350,7 +350,7 @@ export default function SettingsPage() {
           <div className="bg-bg-alt rounded-2xl border border-line p-6">
             <h2 className="font-semibold mb-2">API Keys</h2>
             <p className="text-sm text-muted mb-6">
-              Keys are stored in sessionStorage for this browser tab and cleared when you close it.
+              Keys are encrypted and stored server-side in httpOnly cookies. Never logged or exposed to client JavaScript.
             </p>
 
             <div className="space-y-6">

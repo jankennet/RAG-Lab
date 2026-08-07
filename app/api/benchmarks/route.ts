@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
+import { getProviderKey } from "@/server/auth/key-cookie";
 import { callLlm } from "@/server/rag/providers";
 import { tokenF1 } from "@/server/rag/benchmark";
 
@@ -155,7 +156,6 @@ const runBenchmarkSchema = z.object({
   })).min(1),
   provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
   model: z.string().min(1).default("meta/llama-3.3-70b-instruct"),
-  apiKey: z.string().optional(),
 });
 
 // ── POST: run benchmark ───────────────────────────────────────
@@ -168,8 +168,9 @@ export async function POST(request: Request) {
     const body = runBenchmarkSchema.parse(await request.json());
     const { datasetId, datasetName, questions: inputQuestions, documents, provider, model } = body;
 
+    const rawKey = body.provider ? await getProviderKey(body.provider as "nvidia" | "openai" | "anthropic") : null;
     const apiKeys: Record<string, { key: string }> = {};
-    if (body.apiKey) apiKeys[body.provider] = { key: body.apiKey };
+    if (rawKey) apiKeys[body.provider] = { key: rawKey };
 
     // Normalize documents
     const corpus = documents.map((d, i) => ({

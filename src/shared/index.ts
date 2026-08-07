@@ -7,8 +7,6 @@ export type {
   ChatRequest,
   ChatResponse,
   LlmProvider,
-  ApiKeyEntry,
-  ApiKeyStore,
   ProviderConfig,
   DatasetSource,
   Dataset,
