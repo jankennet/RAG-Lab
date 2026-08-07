@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { applyApiGuard, serverError, badRequest, RateLimits } from "@/server/auth/guard";
+import { getProviderKey } from "@/server/auth/key-cookie";
 import type { LlmProvider } from "@/shared/types";
 
 export const runtime = "nodejs";
@@ -64,6 +65,14 @@ async function fetchOpenAiModels(apiKey: string): Promise<string[]> {
   );
 }
 
+async function fetchAnthropicModels(apiKey: string): Promise<string[]> {
+  return fetchModelsFromEndpoint(
+    "https://api.anthropic.com/v1/models",
+    apiKey,
+    (id) => id.startsWith("claude-"),
+  );
+}
+
 export async function GET(request: Request) {
   try {
     const guard = applyApiGuard(request, RateLimits.default);
@@ -76,9 +85,7 @@ export async function GET(request: Request) {
       return badRequest("Invalid or missing ?provider= parameter");
     }
 
-    // Use API key from Authorization header (sent by client from localStorage)
-    const authHeader = request.headers.get("Authorization");
-    const apiKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const apiKey = await getProviderKey(provider);
 
     let models: string[] = [];
     let fetched = false;
@@ -92,6 +99,7 @@ export async function GET(request: Request) {
           models = await fetchOpenAiModels(apiKey);
           break;
         case "anthropic":
+          models = await fetchAnthropicModels(apiKey);
           break;
       }
       if (models.length > 0) fetched = true;

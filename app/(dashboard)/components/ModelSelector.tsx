@@ -21,7 +21,6 @@ interface ModelsApiResponse {
 export default function ModelSelector({
   provider,
   model,
-  apiKey,
   onProviderChange,
   onModelChange,
 }: ModelSelectorProps) {
@@ -39,14 +38,8 @@ export default function ModelSelector({
       setIsFetching(true);
       setFetchedLive(false);
       try {
-        const headers: Record<string, string> = {};
-        if (apiKey) {
-          headers["Authorization"] = `Bearer ${apiKey}`;
-        }
-
         const response = await fetch(
           `/api/models?provider=${encodeURIComponent(provider)}`,
-          { headers },
         );
         if (!response.ok) return;
         const data = (await response.json()) as ModelsApiResponse;
@@ -70,7 +63,7 @@ export default function ModelSelector({
     }
 
     return () => { cancelled = true; };
-  }, [provider, apiKey]);
+  }, [provider]);
 
   // Build model list: live API preferred, fall back to curated from API response
   const modelOptions = (() => {

@@ -31,15 +31,31 @@ export type ChatMessage = {
   role: MessageRole;
   content: string;
   sources?: RagDocument[];
-  createdAt: number;
+  timestamp: number;
+  kind?: "normal" | "error";
 };
 
 export type ChatThread = {
   id: string;
   title: string;
+  scope: ChatScope;
+  datasetId: string | null;
+  attachments: ChatAttachment[];
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+};
+
+export type ChatScope = "chat" | "dataset" | "all";
+
+export type ChatAttachment = {
+  id: string;
+  name: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  requiresOcr: boolean;
+  ocrEnabled: boolean;
+  createdAt: number;
 };
 
 export type InferenceParams = {
@@ -65,6 +81,9 @@ export type ChatRequest = {
   model?: string;
   provider?: LlmProvider;
   apiKeys: ApiKeyStore;
+  scope?: ChatScope;
+  datasetId?: string | null;
+  documents?: RagDocument[];
   conversationHistory?: { role: MessageRole; content: string }[];
 };
 

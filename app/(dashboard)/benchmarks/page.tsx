@@ -28,7 +28,7 @@ function formatMs(ms: number): string {
 }
 
 export default function BenchmarksPage() {
-  const { preferences, apiKeys } = useDashboard();
+  const { preferences } = useDashboard();
   const [runs, setRuns] = useState<BenchmarkRun[]>([]);
   const [datasets, setDatasets] = useState<OpfsDataset[]>([]);
   const [questionSets, setQuestionSets] = useState<BenchmarkQuestionSet[]>([]);
@@ -200,7 +200,6 @@ export default function BenchmarksPage() {
           documents: docs,
           provider: benchProvider,
           model: benchModel,
-          apiKey: apiKeys[benchProvider],
         }),
       });
 
@@ -404,7 +403,6 @@ export default function BenchmarksPage() {
               <ModelSelector
                 provider={benchProvider}
                 model={benchModel}
-                apiKey={apiKeys[benchProvider]}
                 onProviderChange={setBenchProvider}
                 onModelChange={setBenchModel}
               />

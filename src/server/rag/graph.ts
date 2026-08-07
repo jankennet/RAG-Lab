@@ -8,6 +8,7 @@ type RagState = {
   topP: number;
   maxTokens: number;
   documents: RagDocument[];
+  conversationHistory: { role: "user" | "assistant"; content: string }[];
   answer: string;
   provider: LlmProvider;
   model: string;
@@ -20,6 +21,7 @@ const RagStateAnnotation = Annotation.Root({
   topP: Annotation<number>(),
   maxTokens: Annotation<number>(),
   documents: Annotation<RagDocument[]>(),
+  conversationHistory: Annotation<Array<{ role: "user" | "assistant"; content: string }>>(),
   answer: Annotation<string>(),
   provider: Annotation<LlmProvider>(),
   model: Annotation<string>(),
@@ -50,10 +52,11 @@ async function answerQuestion(state: RagState) {
       {
         role: "system",
         content:
-          "Answer the question from the provided documents. Be concise — 1-3 sentences. " +
-          "If the documents contain relevant information, answer directly even if partial. " +
-          "If the documents truly don't address the question, say 'Not enough context to answer.'",
+          "Answer as helpful chat assistant. Use provided documents when relevant. Be concise — 1-3 sentences. " +
+          "If documents contain relevant info, answer directly even if partial. " +
+          "If documents do not address question, answer from conversation history or general knowledge.",
       },
+      ...state.conversationHistory,
       {
         role: "user",
         content: `Question:\n${state.question}\n\nContext:\n${context}`,
@@ -88,6 +91,7 @@ export async function runRagGraph(
     model?: string;
     apiKeys?: ApiKeyStore;
     documents?: RagDocument[];
+    conversationHistory?: { role: "user" | "assistant"; content: string }[];
   } = {},
 ) {
   const {
@@ -98,6 +102,7 @@ export async function runRagGraph(
     model = "meta/llama-3.3-70b-instruct",
     apiKeys = {},
     documents = [],
+    conversationHistory = [],
   } = options;
 
   // In-context RAG: documents come from client. No server-side retrieval.
@@ -116,6 +121,7 @@ export async function runRagGraph(
     model,
     apiKeys,
     documents,
+    conversationHistory,
   });
 
   return { answer: result.answer, documents: result.documents };

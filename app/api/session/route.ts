@@ -4,7 +4,10 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { HumanMessage } from "@langchain/core/messages";
 import { applyApiGuard, serverError, badRequest, RateLimits } from "@/server/auth/guard";
+import { setProviderKeyCookie, clearProviderKeyCookie, clearAllProviderKeyCookies, getProviderKey } from "@/server/auth/key-cookie";
 import type { LlmProvider } from "@/shared/types";
+
+
 
 export const runtime = "nodejs";
 
@@ -73,12 +76,63 @@ export async function POST(request: Request) {
     const { provider, key } = setKeySchema.parse(await request.json());
     const valid = await validateKey(provider, key);
 
+    if (valid) {
+    await setProviderKeyCookie(provider, key);
+  }
+
     return NextResponse.json({ valid, provider });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return badRequest("Invalid provider or key");
     }
     console.error("[session] POST error:", error instanceof Error ? error.message : error);
+    return serverError();
+  }
+}
+
+export async function GET(request: Request) {
+  const guard = applyApiGuard(request, RateLimits.default);
+  if (guard) return guard;
+
+  const status: Record<string, boolean> = {};
+  for (const p of ["nvidia", "openai", "anthropic"] as const) {
+    status[p] = (await getProviderKey(p)) !== null;
+  }
+  return NextResponse.json(status);
+}
+
+const deleteKeySchema = z.object({
+  provider: z.enum(["nvidia", "openai", "anthropic"]).optional(),
+});
+
+export async function DELETE(request: Request) {
+  try {
+    const guard = applyApiGuard(request, RateLimits.keySession);
+    if (guard) return guard;
+
+    // Body is optional — DELETE requests often have none. Tolerate empty/absent JSON.
+    let body: unknown = {};
+    try {
+      const text = await request.text();
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      return badRequest("Invalid JSON body");
+    }
+
+    const { provider } = deleteKeySchema.parse(body);
+
+    if (provider) {
+      await clearProviderKeyCookie(provider as LlmProvider);
+    } else {
+      await clearAllProviderKeyCookies();
+    }
+
+    return NextResponse.json({ cleared: provider ?? "all" });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return badRequest("Invalid provider");
+    }
+    console.error("[session] DELETE error:", error instanceof Error ? error.message : error);
     return serverError();
   }
 }

@@ -10,6 +10,7 @@ import {
   selectChunker,
   type DocumentType,
 } from "@/server/rag/chunker";
+import type { ChatAttachment, ChatScope, ChatThread } from "@/shared/types";
 
 export type OpfsDataset = {
   id: string;
@@ -70,6 +71,8 @@ async function readFileHandle(dir: FileSystemDirectoryHandle, name: string): Pro
 
 const INDEX_FILE = "datasets-index.json";
 const DATA_DIR = "rag-data";
+const CHATS_DIR = "rag-chats";
+const CHATS_INDEX = "chats-index.json";
 
 async function dataDir(): Promise<FileSystemDirectoryHandle> {
   const root = await rootDir();
@@ -94,6 +97,135 @@ async function saveIndex(datasets: OpfsDataset[]): Promise<void> {
     handle = await dir.getFileHandle(INDEX_FILE, { create: true });
   }
   await writeJson(handle, datasets);
+}
+
+// ── Chat thread storage ─────────────────────────────────────────
+
+async function chatsDir(): Promise<FileSystemDirectoryHandle> {
+  const root = await rootDir();
+  return ensureDir(root, CHATS_DIR);
+}
+
+async function loadChatIds(): Promise<string[]> {
+  try {
+    const dir = await chatsDir();
+    const handle = await readFileHandle(dir, CHATS_INDEX);
+    if (!handle) return [];
+    return (await readJson(handle)) as string[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveChatIds(ids: string[]): Promise<void> {
+  const dir = await chatsDir();
+  let handle = await readFileHandle(dir, CHATS_INDEX);
+  if (!handle) {
+    handle = await dir.getFileHandle(CHATS_INDEX, { create: true });
+  }
+  await writeJson(handle, ids);
+}
+
+function defaultChatThread(id: string, title = "New chat"): ChatThread {
+  return {
+    id,
+    title,
+    scope: "chat",
+    datasetId: null,
+    attachments: [],
+    messages: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+function normalizeChatThread(thread: Partial<ChatThread> & { id: string }): ChatThread {
+  return {
+    ...defaultChatThread(thread.id, thread.title ?? "New chat"),
+    ...thread,
+    scope: thread.scope ?? "chat",
+    datasetId: thread.datasetId ?? null,
+    attachments: thread.attachments ?? [],
+    messages: thread.messages ?? [],
+    createdAt: thread.createdAt ?? Date.now(),
+    updatedAt: thread.updatedAt ?? Date.now(),
+  };
+}
+
+export async function createChatThread(meta?: {
+  title?: string;
+  scope?: ChatScope;
+  datasetId?: string | null;
+}): Promise<ChatThread> {
+  const id = uuid();
+  const thread = normalizeChatThread({
+    id,
+    title: meta?.title ?? "New chat",
+    scope: meta?.scope ?? "chat",
+    datasetId: meta?.datasetId ?? null,
+    attachments: [],
+    messages: [],
+  });
+  await saveChatThread(thread);
+  return thread;
+}
+
+export async function saveChatThread(thread: ChatThread): Promise<void> {
+  const dir = await chatsDir();
+  const handle = await dir.getFileHandle(`${thread.id}.json`, { create: true });
+  const normalized = normalizeChatThread(thread);
+  await writeJson(handle, normalized);
+
+  const ids = await loadChatIds();
+  if (!ids.includes(thread.id)) {
+    ids.unshift(thread.id);
+    await saveChatIds(ids);
+  }
+}
+
+export async function loadChatThread(id: string): Promise<ChatThread | null> {
+  try {
+    const dir = await chatsDir();
+    const handle = await readFileHandle(dir, `${id}.json`);
+    if (!handle) return null;
+    return normalizeChatThread((await readJson(handle)) as Partial<ChatThread> & { id: string });
+  } catch {
+    return null;
+  }
+}
+
+export async function loadChatThreads(): Promise<ChatThread[]> {
+  try {
+    const ids = await loadChatIds();
+    const threads: ChatThread[] = [];
+    for (const id of ids) {
+      const thread = await loadChatThread(id);
+      if (thread) threads.push(thread);
+    }
+    return threads.sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteChatThread(id: string): Promise<void> {
+  try {
+    const dir = await chatsDir();
+    await dir.removeEntry(`${id}.json`);
+  } catch {
+    // Ignore missing files.
+  }
+
+  const ids = await loadChatIds();
+  const next = ids.filter((existing) => existing !== id);
+  await saveChatIds(next);
+}
+
+export function summarizeChatTitle(message: string): string {
+  const cleaned = message.trim().replace(/\s+/g, " ");
+  if (!cleaned) return "New chat";
+  if (cleaned.length <= 48) return cleaned;
+  return `${cleaned.slice(0, 45).trimEnd()}…`;
 }
 
 // ── Datasets CRUD ──────────────────────────────────────────────

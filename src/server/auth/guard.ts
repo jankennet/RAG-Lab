@@ -50,4 +50,6 @@ export const RateLimits = {
   default: { limit: 10, windowMs: 60_000 },
   /** 60 requests per minute — for dataset read */
   datasets: { limit: 30, windowMs: 60_000 },
+  /** 10 requests per minute — for key deletion (cheap, no external calls) */
+  keyClear: { limit: 10, windowMs: 60_000 },
 };

@@ -1,25 +1,32 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import type { LlmProvider } from "@/shared/types";
+import type { ChatScope, ChatThread, LlmProvider } from "@/shared/types";
 import { PROVIDERS } from "@/shared/types";
 import {
   loadDashboardPreferences,
   saveDashboardPreferences,
-  loadApiKeys,
-  saveApiKey,
   clearAllLocalData,
+  loadActiveChatId,
+  saveActiveChatId,
   defaultDashboardPreferences,
   type DashboardPreferences,
 } from "../lib/preferences";
-import { deleteAllDatasets } from "@/client/opfs";
+import {
+  createChatThread as createChatThreadStore,
+  deleteAllDatasets,
+  deleteChatThread as deleteChatThreadStore,
+  loadChatThreads,
+  saveChatThread as saveChatThreadStore,
+} from "@/client/opfs";
 
 type ApiKeyStatus = Record<string, { validated: boolean; hasKey: boolean }>;
 
 type DashboardContextValue = {
   preferences: DashboardPreferences;
   apiKeyStatus: ApiKeyStatus;
-  apiKeys: Partial<Record<LlmProvider, string>>;
+  chatThreads: ChatThread[];
+  activeChatId: string;
   setProvider: (provider: LlmProvider) => void;
   setModel: (model: string) => void;
   setTopK: (topK: number) => void;
@@ -28,6 +35,11 @@ type DashboardContextValue = {
   setMaxTokens: (maxTokens: number) => void;
   submitApiKey: (provider: LlmProvider, key: string) => Promise<boolean>;
   setActiveDataset: (datasetId: string) => void;
+  setActiveChatId: (chatId: string) => void;
+  createChatThread: (meta?: { title?: string; scope?: ChatScope; datasetId?: string | null }) => Promise<ChatThread>;
+  saveChatThread: (thread: ChatThread) => Promise<void>;
+  deleteChatThread: (chatId: string) => Promise<void>;
+  refreshChatThreads: () => Promise<void>;
   hydrate: () => void;
   nukeEverything: () => Promise<void>;
 };
@@ -43,43 +55,82 @@ export function useDashboard(): DashboardContextValue {
 export default function DashboardProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<DashboardPreferences>(defaultDashboardPreferences);
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus>({});
-  const [apiKeys, setApiKeys] = useState<Partial<Record<LlmProvider, string>>>({});
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
+  const [activeChatId, setActiveChatIdState] = useState<string>("");
   const [mounted, setMounted] = useState(false);
 
-  // On mount, load preferences and api keys from localStorage
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setPreferences(loadDashboardPreferences());
-      setApiKeys(loadApiKeys());
-      setMounted(true);
+  const fetchApiKeyStatus = useCallback(async () => {
+    try {
+      const response = await fetch("/api/session", { method: "GET" });
+      if (!response.ok) return;
+      const data = (await response.json()) as Record<string, boolean>;
+      const status: ApiKeyStatus = {};
+      for (const p of ["nvidia", "openai", "anthropic"] as LlmProvider[]) {
+        status[p] = { hasKey: data[p] ?? false, validated: data[p] ?? false };
+      }
+      setApiKeyStatus(status);
+    } catch {
+      // server unreachable — leave status as-is (defaults to "not set" until it resolves)
     }
   }, []);
 
-  // Persist preferences to localStorage (NO keys)
+  // On mount, load preferences from localStorage and key status from the server (cookies are httpOnly, unreadable client-side)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setPreferences(loadDashboardPreferences());
+      setActiveChatIdState(loadActiveChatId());
+      setMounted(true);
+      fetchApiKeyStatus();
+    }
+  }, [fetchApiKeyStatus]);
+
+  // Persist preferences to localStorage (no keys — those live in httpOnly cookies)
   useEffect(() => {
     if (mounted) {
       saveDashboardPreferences(preferences);
     }
   }, [preferences, mounted]);
 
-  // Derive key status from localStorage on mount
-  useEffect(() => {
-    if (mounted) {
-      const local = loadApiKeys();
-      const status: ApiKeyStatus = {};
-      for (const p of ["nvidia", "openai", "anthropic"] as LlmProvider[]) {
-        status[p] = { hasKey: (local[p]?.length ?? 0) > 0, validated: false };
-      }
-      setApiKeyStatus(status);
-    }
-  }, [mounted]);
-
   const hydrate = useCallback(() => {
     if (typeof window !== "undefined") {
       setPreferences(loadDashboardPreferences());
-      setApiKeys(loadApiKeys());
+      setActiveChatIdState(loadActiveChatId());
+      fetchApiKeyStatus();
     }
+  }, [fetchApiKeyStatus]);
+
+  const refreshChatThreads = useCallback(async () => {
+    const threads = await loadChatThreads();
+    setChatThreads(threads);
+
+    const storedActive = loadActiveChatId();
+    if (storedActive && threads.some((thread) => thread.id === storedActive)) {
+      setActiveChatIdState(storedActive);
+      return;
+    }
+
+    if (threads[0]) {
+      setActiveChatIdState(threads[0].id);
+      saveActiveChatId(threads[0].id);
+      return;
+    }
+
+    const created = await createChatThreadStore({ title: "New chat", scope: "chat", datasetId: null });
+    setChatThreads([created]);
+    setActiveChatIdState(created.id);
+    saveActiveChatId(created.id);
   }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    refreshChatThreads().catch(() => {});
+  }, [mounted, refreshChatThreads]);
+
+  useEffect(() => {
+    if (mounted) {
+      saveActiveChatId(activeChatId);
+    }
+  }, [activeChatId, mounted]);
 
   const setProvider = useCallback((provider: LlmProvider) => {
     setPreferences((prev) => {
@@ -108,14 +159,9 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     setPreferences((prev) => ({ ...prev, maxTokens }));
   }, []);
 
-  /** Submit API key: save to localStorage, then validate via server. */
+  /** Submit API key: server validates and stores it in an httpOnly cookie. No client-side persistence. */
   const submitApiKey = useCallback(async (provider: LlmProvider, key: string): Promise<boolean> => {
-    saveApiKey(provider, key);
-    setApiKeys(loadApiKeys());
-    setApiKeyStatus((prev) => ({
-      ...prev,
-      [provider]: { hasKey: true, validated: false },
-    }));
+    setApiKeyStatus((prev) => ({ ...prev, [provider]: { hasKey: false, validated: false } }));
 
     let valid = false;
     try {
@@ -126,16 +172,11 @@ export default function DashboardProvider({ children }: { children: ReactNode })
       });
       const data = await response.json();
       valid = response.ok && data.valid === true;
-      if (valid) {
-        setApiKeyStatus((prev) => ({
-          ...prev,
-          [provider]: { hasKey: true, validated: true },
-        }));
-      }
     } catch {
-      // Server unreachable — key still stored locally, usable
+      valid = false;
     }
 
+    setApiKeyStatus((prev) => ({ ...prev, [provider]: { hasKey: valid, validated: valid } }));
     return valid;
   }, []);
 
@@ -143,7 +184,40 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     setPreferences((prev) => ({ ...prev, activeDatasetId: datasetId }));
   }, []);
 
-  /** Delete everything: localStorage + OPFS datasets. Resets state. */
+  const setActiveChatId = useCallback((chatId: string) => {
+    setActiveChatIdState(chatId);
+    saveActiveChatId(chatId);
+  }, []);
+
+  const createChatThread = useCallback(async (meta?: { title?: string; scope?: ChatScope; datasetId?: string | null }) => {
+    const thread = await createChatThreadStore(meta);
+    setChatThreads((prev) => [thread, ...prev.filter((item) => item.id !== thread.id)]);
+    setActiveChatId(thread.id);
+    return thread;
+  }, [setActiveChatId]);
+
+  const saveChatThread = useCallback(async (thread: ChatThread) => {
+    await saveChatThreadStore(thread);
+    await refreshChatThreads();
+  }, [refreshChatThreads]);
+
+  const deleteChatThread = useCallback(async (chatId: string) => {
+    await deleteChatThreadStore(chatId);
+    const nextThreads = await loadChatThreads();
+    setChatThreads(nextThreads);
+    if (activeChatId === chatId) {
+      const nextActive = nextThreads[0]?.id ?? "";
+      if (nextActive) {
+        setActiveChatId(nextActive);
+      } else {
+        const created = await createChatThreadStore({ title: "New chat", scope: "chat", datasetId: null });
+        setChatThreads([created]);
+        setActiveChatId(created.id);
+      }
+    }
+  }, [activeChatId, setActiveChatId]);
+
+  /** Delete everything: OPFS datasets, localStorage prefs, and server-side key cookies. Resets state. */
   const nukeEverything = useCallback(async (): Promise<void> => {
     try {
       await deleteAllDatasets();
@@ -151,10 +225,14 @@ export default function DashboardProvider({ children }: { children: ReactNode })
       // OPFS may not be available
     }
 
-    clearAllLocalData();
+    try {
+      await fetch("/api/session", { method: "DELETE" });
+    } catch {
+      // server unreachable — cookies will still expire via maxAge, but won't be cleared immediately
+    }
 
+    clearAllLocalData();
     setPreferences(defaultDashboardPreferences);
-    setApiKeys({});
     setApiKeyStatus({});
   }, []);
 
@@ -163,7 +241,8 @@ export default function DashboardProvider({ children }: { children: ReactNode })
       value={{
         preferences,
         apiKeyStatus,
-        apiKeys,
+        chatThreads,
+        activeChatId,
         setProvider,
         setModel,
         setTopK,
@@ -172,6 +251,11 @@ export default function DashboardProvider({ children }: { children: ReactNode })
         setMaxTokens,
         submitApiKey,
         setActiveDataset,
+        setActiveChatId,
+        createChatThread,
+        saveChatThread,
+        deleteChatThread,
+        refreshChatThreads,
         hydrate,
         nukeEverything,
       }}

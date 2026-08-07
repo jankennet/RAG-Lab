@@ -180,7 +180,7 @@ async function writeTempFile(buffer: Buffer, filename: string): Promise<string> 
   return path;
 }
 
-async function parseOneFile(buffer: Buffer, filename: string): Promise<ParsedFile> {
+async function parseOneFile(buffer: Buffer, filename: string, useOcr: boolean): Promise<ParsedFile> {
   const ext = filename.substring(filename.lastIndexOf(".")).toLowerCase();
 
   if (buffer.length > MAX_FILE_SIZE) {
@@ -242,9 +242,15 @@ async function parseOneFile(buffer: Buffer, filename: string): Promise<ParsedFil
         } catch {
           // pdftotext failed — fall through to Python OCR
         }
+        if (!useOcr) {
+          throw new Error(`OCR disabled for "${filename}". Enable OCR or use a text-layer PDF.`);
+        }
       }
 
       // Python OCR fallback for image PDFs / images
+      if (format === "image" && !useOcr) {
+        throw new Error(`OCR disabled for image "${filename}". Enable OCR to extract text.`);
+      }
       try {
         const tempPath = await writeTempFile(buffer, filename);
         const result = await extractViaPythonService(tempPath, `application/${ext === ".pdf" ? "pdf" : "octet-stream"}`);
@@ -296,6 +302,8 @@ export async function POST(request: Request) {
     if (guard) return guard;
 
     const formData = await request.formData();
+    const ocrFlag = formData.get("ocr");
+    const useOcr = !(typeof ocrFlag === "string" && ocrFlag.toLowerCase() === "false");
 
     const rawFiles: File[] = [];
     {
@@ -319,7 +327,7 @@ export async function POST(request: Request) {
     for (const f of rawFiles) {
       const buffer = Buffer.from(await f.arrayBuffer());
       try {
-        results.push(await parseOneFile(buffer, f.name || "upload"));
+        results.push(await parseOneFile(buffer, f.name || "upload", useOcr));
       } catch (err) {
         return badRequest((err as Error).message);
       }

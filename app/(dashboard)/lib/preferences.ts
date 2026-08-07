@@ -22,7 +22,7 @@ export const defaultDashboardPreferences: DashboardPreferences = {
 };
 
 const STORAGE_KEY = "ms-rag-dashboard-preferences";
-const API_KEYS_KEY = "ms-rag-api-keys";
+const ACTIVE_CHAT_KEY = "ms-rag-active-chat-id";
 
 export function loadDashboardPreferences(): DashboardPreferences {
   if (typeof window === "undefined") {
@@ -58,43 +58,30 @@ export function saveDashboardPreferences(preferences: DashboardPreferences) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
 }
 
-// ── API key persistence (localStorage) ──────────────────────
-
-/** Keys never included in DashboardPreferences. Separate store. */
-export type StoredApiKeys = Partial<Record<LlmProvider, string>>;
-
-export function loadApiKeys(): StoredApiKeys {
-  if (typeof window === "undefined") return {};
-
-  try {
-    const raw = window.localStorage.getItem(API_KEYS_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as StoredApiKeys;
-  } catch {
-    return {};
-  }
-}
-
-export function saveApiKey(provider: LlmProvider, key: string) {
-  if (typeof window === "undefined") return;
-
-  const keys = loadApiKeys();
-  keys[provider] = key;
-  window.localStorage.setItem(API_KEYS_KEY, JSON.stringify(keys));
-}
-
-export function clearApiKey(provider: LlmProvider) {
-  if (typeof window === "undefined") return;
-
-  const keys = loadApiKeys();
-  delete keys[provider];
-  window.localStorage.setItem(API_KEYS_KEY, JSON.stringify(keys));
-}
-
 /** Wipe all localStorage data managed by this app. */
 export function clearAllLocalData() {
   if (typeof window === "undefined") return;
 
   window.localStorage.removeItem(STORAGE_KEY);
-  window.localStorage.removeItem(API_KEYS_KEY);
+  window.localStorage.removeItem(ACTIVE_CHAT_KEY);
+}
+
+export function loadActiveChatId(): string {
+  if (typeof window === "undefined") return "";
+
+  try {
+    return window.localStorage.getItem(ACTIVE_CHAT_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveActiveChatId(chatId: string) {
+  if (typeof window === "undefined") return;
+  if (!chatId) {
+    window.localStorage.removeItem(ACTIVE_CHAT_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(ACTIVE_CHAT_KEY, chatId);
 }

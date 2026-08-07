@@ -14,7 +14,6 @@ const PROVIDER_LABELS: Record<LlmProvider, string> = {
 export default function SettingsPage() {
   const {
     preferences,
-    apiKeys,
     setProvider,
     setModel,
     setTopK,
@@ -47,16 +46,9 @@ export default function SettingsPage() {
       setIsFetchingModels(true);
       setModelsFetchedLive(false);
       try {
-        const headers: Record<string, string> = {};
-        // Send API key from localStorage so server can fetch real models
-        const localKey = apiKeys[preferences.provider];
-        if (localKey) {
-          headers["Authorization"] = `Bearer ${localKey}`;
-        }
 
         const response = await fetch(
           `/api/models?provider=${encodeURIComponent(preferences.provider)}`,
-          { headers },
         );
         if (!response.ok) return;
         const data = await response.json();
@@ -80,7 +72,7 @@ export default function SettingsPage() {
     }
 
     return () => { cancelled = true; };
-  }, [preferences.provider, apiKeys]);
+  }, [preferences.provider]);
 
   // Build model list: live API results preferred, fall back to curated from API response
   const modelOptions = (() => {
@@ -358,56 +350,89 @@ export default function SettingsPage() {
           <div className="bg-bg-alt rounded-2xl border border-line p-6">
             <h2 className="font-semibold mb-2">API Keys</h2>
             <p className="text-sm text-muted mb-6">
-              Set your API keys. Keys are encrypted and stored in a secure httpOnly cookie — never exposed to JavaScript or localStorage.
+              Keys are stored in sessionStorage for this browser tab and cleared when you close it.
             </p>
 
             <div className="space-y-6">
-              {(["nvidia", "openai", "anthropic"] as LlmProvider[]).map((provider) => {
-                const status = apiKeyStatus[provider];
-                const isKeyValidated = status?.validated ?? false;
-                const isKeySet = (apiKeys[provider]?.length ?? 0) > 0;
-                const isSubmitting = submitting[provider] ?? false;
+  {(["nvidia", "openai", "anthropic"] as LlmProvider[]).map((provider) => {
+    const status = apiKeyStatus[provider];
+    const isKeyValidated = status?.validated ?? false;
+    const isKeySet = apiKeyStatus[provider]?.hasKey ?? false;
+    const isSubmitting = submitting[provider] ?? false;
 
-                return (
-                  <div key={provider} className="border-b border-line/50 last:border-b-0 pb-5 last:pb-0">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium">{PROVIDER_LABELS[provider]}</span>
-                      <span
-                        className={`px-2 py-0.5 text-xs rounded-full font-medium ${
-                          isKeyValidated
-                            ? "bg-success/20 text-success"
-                            : isKeySet
-                              ? "bg-accent/20 text-accent"
-                              : "bg-danger/20 text-danger"
-                        }`}
-                      >
-                        {isKeyValidated ? "Valid" : isKeySet ? "Key Configured" : "Not set"}
-                      </span>
-                    </div>
-                    <input
-                      type="password"
-                      value={localKeys[provider] ?? ""}
-                      onChange={(e) => setLocalKeys((prev) => ({ ...prev, [provider]: e.target.value }))}
-                      className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors mb-2"
-                      placeholder={
-                        isKeySet
-                          ? "Key Configured — enter a new key"
-                          : `Enter your ${PROVIDER_LABELS[provider]} API key`
-                      }
-                      autoComplete="off"
-                    />
-                    <button
-                      onClick={() => handleSubmitKey(provider)}
-                      disabled={!localKeys[provider] || isSubmitting}
-                      className="w-full px-3 py-2 bg-accent/10 border border-accent/20 text-accent text-sm font-medium rounded-xl hover:bg-accent/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {isSubmitting ? "Testing & saving..." : "Save & Validate"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+    return (
+            <form
+              key={provider}
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSubmitKey(provider);
+              }}
+              className="border-b border-line/50 last:border-b-0 pb-5 last:pb-0"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium">
+                  {PROVIDER_LABELS[provider]}
+                </span>
+
+                <span
+                  className={`px-2 py-0.5 text-xs rounded-full font-medium ${
+                    isKeyValidated
+                      ? "bg-success/20 text-success"
+                      : isKeySet
+                      ? "bg-accent/20 text-accent"
+                      : "bg-danger/20 text-danger"
+                  }`}
+                >
+                  {isKeyValidated
+                    ? "Valid"
+                    : isKeySet
+                    ? "Key Configured"
+                    : "Enter key for this session"}
+                </span>
+              </div>
+
+              {/* Hidden username for password managers */}
+              <input
+                type="text"
+                name="username"
+                value={provider}
+                autoComplete="username"
+                readOnly
+                hidden
+              />
+
+              <input
+                id={`${provider}-password`}
+                name="password"
+                type="password"
+                value={localKeys[provider] ?? ""}
+                onChange={(e) =>
+                  setLocalKeys((prev) => ({
+                    ...prev,
+                    [provider]: e.target.value,
+                  }))
+                }
+                className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors mb-2"
+                placeholder={
+                  isKeySet
+                    ? "Key Configured — enter a new key"
+                    : `Enter your ${PROVIDER_LABELS[provider]} API key`
+                }
+                autoComplete="current-password"
+              />
+
+              <button
+                type="submit"
+                disabled={!localKeys[provider] || isSubmitting}
+                className="w-full px-3 py-2 bg-accent/10 border border-accent/20 text-accent text-sm font-medium rounded-xl hover:bg-accent/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? "Testing & saving..." : "Save & Validate"}
+              </button>
+            </form>
+          );
+        })}
+      </div>
+      </div>
         )}
 
         {/* Data tab — nuke everything */}

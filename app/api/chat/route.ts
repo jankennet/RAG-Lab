@@ -3,6 +3,7 @@ import { z } from "zod";
 import { formatAnswerSourceList, runRagGraph } from "@/server/rag/graph";
 import { applyApiGuard, serverError, RateLimits } from "@/server/auth/guard";
 import type { LlmProvider, RagDocument } from "@/shared/types";
+import { getProviderKey } from "@/server/auth/key-cookie";
 
 export const runtime = "nodejs";
 
@@ -25,11 +26,9 @@ const chatRequestSchema = z.object({
   maxTokens: z.coerce.number().int().min(1).max(32768).default(4096),
   provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
   model: z.string().min(1).max(256).default("meta/llama-3.3-70b-instruct"),
-  apiKey: z.string().max(512).optional(),
-  /** Client-supplied documents (fallback / OPFS keyword search results) */
   documents: z.array(documentSchema).default([]),
-  /** Active dataset ID for server-side retrieval */
   datasetId: z.string().optional(),
+  conversationHistory: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })).default([]),
 });
 
 export async function POST(request: Request) {
@@ -39,18 +38,17 @@ export async function POST(request: Request) {
 
     const payload = chatRequestSchema.parse(await request.json());
 
-    // Build API key store from request body
-    const apiKeys: Partial<Record<LlmProvider, { key: string; validated: boolean }>> = {};
-    if (payload.apiKey) {
-      apiKeys[payload.provider] = { key: payload.apiKey, validated: false };
-    }
-
-    if (!apiKeys[payload.provider]?.key) {
+    const rawKey = await getProviderKey(payload.provider);
+    if (!rawKey) {
       return NextResponse.json(
         { error: `No API key configured for ${payload.provider}. Set it in Settings.` },
         { status: 400 },
       );
     }
+
+    const apiKeys: Partial<Record<LlmProvider, { key: string; validated: boolean }>> = {
+      [payload.provider]: { key: rawKey, validated: true },
+    };
 
     let documents: RagDocument[] = [];
 
@@ -75,6 +73,7 @@ export async function POST(request: Request) {
       model: payload.model,
       apiKeys,
       documents: documents.slice(0, payload.topK),
+      conversationHistory: payload.conversationHistory,
     });
 
     return NextResponse.json({
