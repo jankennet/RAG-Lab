@@ -1,16 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useDashboard } from "./DashboardProvider";
 
+// Convos live in the Chats list. No separate "Chat" nav — clicking any thread opens it directly.
 const navGroups = [
-  {
-    label: "Chat",
-    items: [
-      { href: "/", label: "Chat" },
-    ],
-  },
   {
     label: "Knowledge",
     items: [
@@ -34,10 +29,12 @@ const navGroups = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { chatThreads, activeChatId, createChatThread, deleteChatThread, setActiveChatId } = useDashboard();
+  const router = useRouter();
+  const { chatThreads, createChatThread, deleteChatThread } = useDashboard();
 
   const handleNewChat = async () => {
-    await createChatThread({ title: "New chat", scope: "chat", datasetId: null });
+    const thread = await createChatThread({ title: "New chat", scope: "chat", datasetId: null });
+    router.push(`/chats/${thread.id}`);
   };
 
   return (
@@ -69,7 +66,8 @@ export default function Sidebar() {
             <p className="px-3 py-2 text-xs text-muted">No saved chats yet.</p>
           ) : (
             chatThreads.map((thread) => {
-              const isActive = thread.id === activeChatId;
+              const href = `/chats/${thread.id}`;
+              const isActive = pathname === href;
               return (
                 <div
                   key={thread.id}
@@ -79,8 +77,8 @@ export default function Sidebar() {
                       : "bg-panel/40 border-transparent hover:bg-bg-alt/60"
                   }`}
                 >
-                  <button
-                    onClick={() => setActiveChatId(thread.id)}
+                  <Link
+                    href={href}
                     className="flex-1 min-w-0 text-left"
                   >
                     <div className="flex items-center gap-2 min-w-0">
@@ -91,7 +89,7 @@ export default function Sidebar() {
                       {thread.scope === "chat" ? "Chat" : thread.scope === "dataset" ? "Dataset" : "All datasets"}
                       {thread.datasetId ? " · dataset scoped" : ""}
                     </p>
-                  </button>
+                  </Link>
                   <button
                     onClick={() => deleteChatThread(thread.id)}
                     className="shrink-0 opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-colors"

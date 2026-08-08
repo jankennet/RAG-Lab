@@ -1,6 +1,6 @@
 # RAG LAB
 
-Browser-native, local-first RAG lab. Data stays in your browser (OPFS). API keys in localStorage. No server DB.
+Browser-native, local-first RAG lab. Data stays in your browser (OPFS). No server DB.
 
 **Stack:**
 - Orchestration: LangGraph.js
@@ -73,8 +73,7 @@ Or: `npm run rag-service`
 
 ## Notes
 
-- All data stored in OPFS (browser storage). No server-side persistence.
-- API keys stored in localStorage, sent to API per-request.
+- All data stored in OPFS (browser storage).
 - Text formats parsed client-side. Binary formats sent to server.
 - Image PDFs/images require Python service with Tesseract.
 - Benchmarks persist to `data/benchmarks/` as compact JSON (~2-5KB per run).
