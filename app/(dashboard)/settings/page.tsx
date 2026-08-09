@@ -34,6 +34,15 @@ export default function SettingsPage() {
   const [nukeConfirm, setNukeConfirm] = useState("");
   const [nuking, setNuking] = useState(false);
   const [nukeDone, setNukeDone] = useState(false);
+  const [nukeScope, setNukeScope] = useState({
+    apiKeys: true,
+    datasets: true,
+    chats: true,
+    benchmarks: true,
+    preferences: true,
+  });
+
+  const anyScopeSelected = Object.values(nukeScope).some(Boolean);
   const [modelsFetchedLive, setModelsFetchedLive] = useState(false);
 
   const selectedProvider = PROVIDERS.find((p) => p.value === preferences.provider);

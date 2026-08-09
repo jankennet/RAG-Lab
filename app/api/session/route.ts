@@ -63,6 +63,25 @@ async function validateKey(provider: LlmProvider, key: string): Promise<boolean>
   }
 }
 
+/**
+ * Run validateKey but never block the save on a slow or rate-limited provider.
+ * A hung/429 provider call must not prevent the key from being stored.
+ */
+const VALIDATE_TIMEOUT_MS = 4000;
+
+async function validateKeyWithTimeout(provider: LlmProvider, key: string): Promise<boolean> {
+  try {
+    return await Promise.race([
+      validateKey(provider, key),
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), VALIDATE_TIMEOUT_MS),
+      ),
+    ]);
+  } catch {
+    return false;
+  }
+}
+
 const setKeySchema = z.object({
   provider: z.enum(["nvidia", "openai", "anthropic"]),
   key: z.string().min(1).max(512),
@@ -74,13 +93,15 @@ export async function POST(request: Request) {
     if (guard) return guard;
 
     const { provider, key } = setKeySchema.parse(await request.json());
-    const valid = await validateKey(provider, key);
 
-    if (valid) {
+    // Save the key regardless of validation outcome. A provider test that
+    // fails/times out (e.g. HTTP 429) must never discard the key the user
+    // just entered — that's what made saves appear to silently fail.
     await setProviderKeyCookie(provider, key);
-  }
 
-    return NextResponse.json({ valid, provider });
+    const valid = await validateKeyWithTimeout(provider, key);
+
+    return NextResponse.json({ saved: true, valid, provider });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return badRequest("Invalid provider or key");

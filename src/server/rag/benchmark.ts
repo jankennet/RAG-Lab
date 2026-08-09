@@ -6,52 +6,13 @@
  * Speed:  per-row + aggregate latency
  */
 
-// ── Normalization ───────────────────────────────────────────────────
-
-function normalize(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function tokens(text: string): string[] {
-  return normalize(text).split(/\s+/).filter(Boolean);
-}
-
-// ── Token overlap helpers ──────────────────────────────────────────
-
-function countOverlap(predTokens: string[], refTokens: string[]): number {
-  const predCounts = new Map<string, number>();
-  const refCounts = new Map<string, number>();
-
-  for (const t of predTokens) predCounts.set(t, (predCounts.get(t) ?? 0) + 1);
-  for (const t of refTokens)  refCounts.set(t, (refCounts.get(t) ?? 0) + 1);
-
-  let overlap = 0;
-  for (const [t, c] of predCounts) {
-    overlap += Math.min(c, refCounts.get(t) ?? 0);
-  }
-  return overlap;
-}
+import { tokenF1 } from "@/server/rag/metrics";
 
 // ── Answer metric ──────────────────────────────────────────────────
 
-export function tokenF1(prediction: string, reference: string): number {
-  const pTokens = tokens(prediction);
-  const rTokens = tokens(reference);
-
-  if (pTokens.length === 0 || rTokens.length === 0) return 0;
-
-  const overlap = countOverlap(pTokens, rTokens);
-  const precision = overlap / pTokens.length;
-  const recall = overlap / rTokens.length;
-
-  return precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
-}
-
-// ── Types ──────────────────────────────────────────────────────────
-
-export interface AnswerEvalResult {
+export type AnswerEvalResult = {
   tokenF1: number;
-}
+};
 
 export interface EvalRow {
   question: string;

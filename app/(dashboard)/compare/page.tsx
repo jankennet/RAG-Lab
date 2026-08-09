@@ -5,7 +5,7 @@ import Link from "next/link";
 import { loadBenchmarkRuns } from "@/client/opfs";
 import type { BenchmarkRun, BenchmarkMetrics } from "@/client/opfs";
 
-type TrendMetric = keyof Pick<BenchmarkMetrics, "tokenF1" | "faithfulness" | "answerRelevance" | "contextUtilization" | "latencyMs">;
+type TrendMetric = keyof Pick<BenchmarkMetrics, "tokenF1" | "faithfulness" | "answerRelevance" | "exactMatch" | "latencyMs">;
 
 type TrendGroup = {
   datasetName: string;
@@ -25,7 +25,7 @@ function formatDelta(value: number, isLatency = false): string {
 }
 
 function metricValue(run: BenchmarkRun, metric: TrendMetric): number {
-  return run.metrics[metric];
+  return run.metrics[metric] ?? 0;
 }
 
 function sparkline(values: number[]): string {
@@ -228,7 +228,7 @@ export default function ComparePage() {
                           <td className="py-3 px-4">{(latest.metrics.tokenF1 * 100).toFixed(1)}%</td>
                           <td className="py-3 px-4">{(latest.metrics.faithfulness * 100).toFixed(1)}%</td>
                           <td className="py-3 px-4">{(latest.metrics.answerRelevance * 100).toFixed(1)}%</td>
-                          <td className="py-3 px-4">{(latest.metrics.contextUtilization * 100).toFixed(1)}%</td>
+                          <td className="py-3 px-4">{((latest.metrics.exactMatch ?? 0) * 100).toFixed(1)}%</td>
                           <td className="py-3 px-4">{formatMs(latest.metrics.latencyMs)}</td>
                         </tr>
                       );

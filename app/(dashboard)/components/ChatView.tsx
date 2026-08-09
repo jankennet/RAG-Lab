@@ -313,10 +313,14 @@ export default function ChatView({ chatId }: { chatId: string }) {
         console.warn("[attach] auto-ingest failed:", err);
       }
 
+      // Preserve the user's selected scope — attaching/ingesting a file is data,
+      // not a scope change. The upload dataset is still linked (datasetId) so a
+      // later switch to Dataset/All datasets can query it, but the dropdown stays
+      // where the user left it (e.g. "Chat").
       const nextThread: ChatThread = {
         ...thread,
         attachments: [...currentAttachments, ...textAttachments],
-        scope: autoDatasetId ? "dataset" : thread.scope,
+        scope: thread.scope,
         datasetId: autoDatasetId ?? thread.datasetId,
         updatedAt: Date.now(),
       };

@@ -14,6 +14,8 @@ import {
 } from "../lib/preferences";
 import {
   createChatThread as createChatThreadStore,
+  deleteAllBenchmarks,
+  deleteAllChats,
   deleteAllDatasets,
   deleteChatThread as deleteChatThreadStore,
   loadChatThreads,
@@ -41,7 +43,23 @@ type DashboardContextValue = {
   deleteChatThread: (chatId: string) => Promise<void>;
   refreshChatThreads: () => Promise<void>;
   hydrate: () => void;
-  nukeEverything: () => Promise<void>;
+  nukeEverything: (options?: NukeOptions) => Promise<void>;
+};
+
+export type NukeOptions = {
+  apiKeys?: boolean;
+  datasets?: boolean;
+  chats?: boolean;
+  benchmarks?: boolean;
+  preferences?: boolean;
+};
+
+const DEFAULT_NUKE_OPTIONS: Required<NukeOptions> = {
+  apiKeys: true,
+  datasets: true,
+  chats: true,
+  benchmarks: true,
+  preferences: true,
 };
 
 const DashboardContext = createContext<DashboardContextValue | null>(null);
@@ -163,6 +181,7 @@ export default function DashboardProvider({ children }: { children: ReactNode })
   const submitApiKey = useCallback(async (provider: LlmProvider, key: string): Promise<boolean> => {
     setApiKeyStatus((prev) => ({ ...prev, [provider]: { hasKey: false, validated: false } }));
 
+    let saved = false;
     let valid = false;
     try {
       const response = await fetch("/api/session", {
@@ -171,13 +190,14 @@ export default function DashboardProvider({ children }: { children: ReactNode })
         body: JSON.stringify({ provider, key }),
       });
       const data = await response.json();
-      valid = response.ok && data.valid === true;
+      saved = response.ok && data.saved === true;
+      valid = saved && data.valid === true;
     } catch {
-      valid = false;
+      saved = false;
     }
 
-    setApiKeyStatus((prev) => ({ ...prev, [provider]: { hasKey: valid, validated: valid } }));
-    return valid;
+    setApiKeyStatus((prev) => ({ ...prev, [provider]: { hasKey: saved, validated: valid } }));
+    return saved;
   }, []);
 
   const setActiveDataset = useCallback((datasetId: string) => {
@@ -218,23 +238,55 @@ export default function DashboardProvider({ children }: { children: ReactNode })
   }, [activeChatId, setActiveChatId]);
 
   /** Delete everything: OPFS datasets, localStorage prefs, and server-side key cookies. Resets state. */
-  const nukeEverything = useCallback(async (): Promise<void> => {
-    try {
-      await deleteAllDatasets();
-    } catch {
-      // OPFS may not be available
+  const nukeEverything = useCallback(async (options?: NukeOptions): Promise<void> => {
+    const opts = { ...DEFAULT_NUKE_OPTIONS, ...(options ?? {}) };
+
+    if (opts.datasets) {
+      try {
+        await deleteAllDatasets();
+      } catch {
+        // OPFS may not be available
+      }
     }
 
-    try {
-      await fetch("/api/session", { method: "DELETE" });
-    } catch {
-      // server unreachable — cookies will still expire via maxAge, but won't be cleared immediately
+    if (opts.chats) {
+      try {
+        await deleteAllChats();
+      } catch {
+        // OPFS may not be available
+      }
     }
 
-    clearAllLocalData();
-    setPreferences(defaultDashboardPreferences);
-    setApiKeyStatus({});
-  }, []);
+    if (opts.benchmarks) {
+      try {
+        await deleteAllBenchmarks();
+      } catch {
+        // OPFS may not be available
+      }
+    }
+
+    if (opts.apiKeys) {
+      try {
+        await fetch("/api/session", { method: "DELETE" });
+      } catch {
+        // server unreachable — cookies will still expire via maxAge, but won't be cleared immediately
+      }
+    }
+
+    if (opts.preferences) {
+      clearAllLocalData();
+      setPreferences(defaultDashboardPreferences);
+    }
+
+    if (opts.apiKeys) {
+      setApiKeyStatus({});
+    }
+
+    // Refresh chats UI when chats were wiped (auto-creates a new empty chat)
+    if (opts.chats) {
+      await refreshChatThreads();
+    }
+  }, [refreshChatThreads]);
 
   return (
     <DashboardContext.Provider

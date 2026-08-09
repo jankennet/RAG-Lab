@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { loadIndex, loadDocuments, loadBenchmarkRuns, saveBenchmarkRun } from "@/client/opfs";
 import type { OpfsDataset, BenchmarkRun, BenchmarkMetrics } from "@/client/opfs";
@@ -56,39 +56,8 @@ export default function BenchmarksPage() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
 
-  // Progress
-  const RUN_PHASES = [
-    "Loading benchmark questions & KB documents...",
-    "Retrieving relevant context...",
-    "Evaluating retrieval quality with LLM...",
-    "Generating answers & scoring against ground truth...",
-    "Crunching final metrics...",
-  ];
-  const [phaseIdx, setPhaseIdx] = useState(0);
+  // Progress — driven by the benchmark route's NDJSON stream (real, not a timer).
   const [progress, setProgress] = useState(0);
-  const phaseInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!triggering) {
-      if (phaseInterval.current) clearInterval(phaseInterval.current);
-      phaseInterval.current = null;
-      return;
-    }
-    setPhaseIdx(0);
-    setProgress(0);
-
-    phaseInterval.current = setInterval(() => {
-      setPhaseIdx((p) => {
-        if (p >= RUN_PHASES.length - 1) return Math.max(RUN_PHASES.length - 3, p);
-        return p + 1;
-      });
-      setProgress((p) => Math.min(p + 0.12, 0.9));
-    }, 2200);
-
-    return () => {
-      if (phaseInterval.current) clearInterval(phaseInterval.current);
-    };
-  }, [triggering, RUN_PHASES.length]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -196,6 +165,7 @@ export default function BenchmarksPage() {
           questions: selectedQuestions.map((q) => ({
             question: q.question,
             groundTruth: q.groundTruth,
+            relevantDocIds: q.expectedSources,
           })),
           documents: docs,
           provider: benchProvider,
@@ -203,13 +173,46 @@ export default function BenchmarksPage() {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+      // NDJSON stream — parse line-by-line for real progress + the final run.
+      if (!res.ok || !res.body) {
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          throw new Error(typeof data.error === "string" ? data.error : text);
+        } catch {
+          throw new Error(text || `HTTP ${res.status}`);
+        }
       }
 
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let run: BenchmarkRun | null = null;
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const msg = JSON.parse(line);
+          if (msg.type === "progress") {
+            setProgress(msg.total > 0 ? msg.done / msg.total : 1);
+          } else if (msg.type === "run") {
+            run = msg.run;
+          } else if (msg.type === "error") {
+            throw new Error(msg.error ?? "Benchmark failed");
+          }
+        }
+        if (done) break;
+      }
+
+      if (!run) throw new Error("Benchmark returned no result");
+
       // Save to OPFS
-      await saveBenchmarkRun(data);
+      await saveBenchmarkRun(run);
 
       await fetchData();
       setProgress(1);
@@ -431,11 +434,11 @@ export default function BenchmarksPage() {
               </div>
               <div className="flex items-center gap-3 min-h-[2.5rem]">
                 <span className="text-accent font-mono text-sm animate-pulse">
-                  {RUN_PHASES[phaseIdx]}
+                  Benchmarking {Math.min(Math.round(progress * limit), limit)}/{limit} questions...
                 </span>
               </div>
               <p className="text-xs text-muted mt-3 font-mono">
-                &gt; Benchmarking {limit} questions with {benchProvider}/{benchModel}
+                &gt; {benchProvider}/{benchModel} — this runs 2 LLM calls (generate + judge) per question
               </p>
             </div>
           )}
@@ -532,8 +535,8 @@ export default function BenchmarksPage() {
                         <ScoreBadge score={run.metrics.answerRelevance} />
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-xs text-muted">Context Util</span>
-                        <ScoreBadge score={run.metrics.contextUtilization} />
+                        <span className="text-xs text-muted">Exact Match</span>
+                        <ScoreBadge score={run.metrics.exactMatch ?? 0} />
                       </div>
                     </div>
                   )}

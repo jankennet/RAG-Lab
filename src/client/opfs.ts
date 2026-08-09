@@ -325,6 +325,24 @@ export async function deleteAllDatasets(): Promise<void> {
   }
 }
 
+export async function deleteAllChats(): Promise<void> {
+  const root = await rootDir();
+  try {
+    await root.removeEntry(CHATS_DIR, { recursive: true });
+  } catch {
+    // Directory may not exist — nothing to delete
+  }
+}
+
+export async function deleteAllBenchmarks(): Promise<void> {
+  const root = await rootDir();
+  try {
+    await root.removeEntry(BENCHMARKS_DIR, { recursive: true });
+  } catch {
+    // Directory may not exist — nothing to delete
+  }
+}
+
 // ── Chunking (delegates to shared strategy-pattern chunker) ──
 
 /**
@@ -380,21 +398,33 @@ export type BenchmarkMetrics = {
   latencyMs: number;
   faithfulness: number;
   answerRelevance: number;
-  contextUtilization: number;
   tokenF1: number;
+  exactMatch?: number;
+  recallAtK?: number;
+  precisionAtK?: number;
+  mrr?: number;
+  labeledCount?: number;
+  /** Legacy field — no longer produced by the benchmark route; kept for old runs. */
+  contextUtilization?: number;
 };
 
 export type CompactQuestionResult = {
   latencyMs: number;
   faithfulness: number;
   answerRelevance: number;
-  contextUtilization: number;
   tokenF1: number;
+  exactMatch?: number;
+  recallAtK?: number;
+  precisionAtK?: number;
   question: string;
   groundTruth: string;
   generatedAnswer: string;
+  generationError?: string;
+  answerStatus?: "answered" | "refused" | "empty";
   retrievalCount: number;
   retrievedDocTitles: string[];
+  /** Legacy field — no longer produced by the benchmark route; kept for old runs. */
+  contextUtilization?: number;
 };
 
 export type BenchmarkRun = {
@@ -404,6 +434,10 @@ export type BenchmarkRun = {
   provider: string;
   model: string;
   totalQuestions: number;
+  answeredCount: number;
+  refusedCount: number;
+  emptyCount: number;
+  errorCount: number;
   status: string;
   createdAt: number;
   metrics: BenchmarkMetrics;

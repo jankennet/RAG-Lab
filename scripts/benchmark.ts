@@ -17,6 +17,8 @@ import { join } from "path";
 import { z } from "zod";
 import { runRagGraphWithRetrieval } from "@/server/rag/graph";
 import { runBenchmark } from "@/server/rag/benchmark";
+import { evaluateRetrieval, type RetrievalQuestion } from "@/server/rag/retrieval-eval";
+import { loadRagbench, corpusCoversQuestions } from "@/server/rag/ragbench";
 import { DATA_DIR } from "@/server/ingestion/store";
 import { parseContent } from "@/server/ingestion/parse";
 import type { RagDocument } from "@/shared/types";
@@ -78,23 +80,12 @@ function loadLocalDataset(name: string) {
   return docs;
 }
 
-function keywordSearch(docs: RagDocument[], query: string, topK = 4): RagDocument[] {
-  const tokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
-  if (tokens.length === 0) return docs.slice(0, topK);
-
-  const scored = docs.map((doc) => {
-    const contentLower = doc.content.toLowerCase();
-    const titleLower = doc.title.toLowerCase();
-    let score = 0;
-    for (const tok of tokens) {
-      score += (titleLower.split(tok).length - 1) * 3;
-      score += contentLower.split(tok).length - 1;
-    }
-    return { doc, score };
-  });
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK).map((s) => ({ ...s.doc, similarity: s.score }));
+async function keywordSearch(docs: RagDocument[], query: string, topK = 4): Promise<RagDocument[]> {
+  const {
+    keywordSearch: rank,
+  } = await import("@/server/rag/retrieval");
+  const hitKeys = new Set(rank(docs, query, topK).map((d) => d.sourceKey));
+  return docs.filter((d) => hitKeys.has(d.sourceKey)).slice(0, topK);
 }
 
 async function main() {
@@ -103,25 +94,64 @@ async function main() {
   const questionsFile = args.questions as string | undefined;
   const questionsFromHf = args["questions-from-hf"] as boolean | undefined;
 
-  if (!datasetName) {
+  // ── RagBench mode: evidence-aware corpus + guaranteed coverage ──
+  const ragbenchConfig = args["ragbench-config"] as string | undefined;
+
+  if (!datasetName && !ragbenchConfig) {
     console.error("Usage: tsx scripts/benchmark.ts --dataset <name> --questions <file.json>");
-    console.error("  or:  tsx scripts/benchmark.ts --dataset <name> --questions-from-hf");
+    console.error("  or:  tsx scripts/benchmark.ts --ragbench-config covidqa,pubmedqa,expertqa [--rows 25]");
     console.error("");
     console.error("Options:");
-    console.error("  --dataset            Local dataset name (required)");
+    console.error("  --dataset            Local dataset name");
     console.error("  --questions          JSON or CSV file with question/reference pairs");
     console.error("  --questions-from-hf  Fetch questions from HF datasets-server");
-    console.error("  --hf-question-field  HF field name for question (auto-detected)");
-    console.error("  --hf-answer-field    HF field name for answer (default 'answer')");
+    console.error("  --ragbench-config    Comma-separated RagBench configs (evidence-aware corpus, no LLM needed)");
+    console.error("  --rows               Train rows per config (default 25)");
     console.error("  --provider           LLM provider (default nvidia)");
     console.error("  --model              LLM model");
     process.exitCode = 1;
     return;
   }
 
+  let docs: RagDocument[] = [];
+  let retrievalQuestions: RetrievalQuestion[] = [];
+
+  if (ragbenchConfig) {
+    const configs = ragbenchConfig.split(",").map((s) => s.trim()).filter(Boolean);
+    const rowsPer = Number(args.rows ?? 25);
+    console.log(`Loading RagBench configs: ${configs.join(", ")} (${rowsPer} rows each)`);
+    const { corpus, questions } = await loadRagbench(configs, rowsPer);
+    const cov = corpusCoversQuestions({ corpus, questions });
+    console.log(`Corpus docs: ${corpus.length}`);
+    console.log(`Coverage ceiling: ${cov.covered}/${cov.total} questions have evidence in corpus`);
+    docs = corpus.map((d, i) => ({
+      id: i,
+      sourceKey: d.sourceKey,
+      sourceName: "ragbench",
+      sourceUrl: null,
+      title: d.title,
+      content: d.content,
+      metadata: {},
+      chunkIndex: 0,
+    }));
+    retrievalQuestions = questions.map((q) => ({
+      id: q.id,
+      question: q.question,
+      relevantDocIds: q.relevantDocKeys,
+    }));
+    const rows = questions.map((q) => ({ question: q.question, reference: q.reference }));
+    return runBenchmarkCli(datasetName ?? ragbenchConfig, rows, docs, retrievalQuestions, args);
+  }
+
+  if (!datasetName) {
+    console.error("No dataset name provided.");
+    process.exitCode = 1;
+    return;
+  }
+
   // Load local chunks
   console.log(`Loading dataset: ${datasetName}`);
-  const docs = loadLocalDataset(datasetName);
+  docs = loadLocalDataset(datasetName);
   console.log(`Chunks: ${docs.length}`);
 
   // Load questions
@@ -196,18 +226,46 @@ async function main() {
   console.log(`Questions: ${rows.length}`);
   console.log("");
 
-  // Run benchmark
+  await runBenchmarkCli(datasetName, rows, docs, retrievalQuestions, args);
+}
+
+/**
+ * Run the answer-quality benchmark plus the retrieval-quality gate.
+ * When relevance labels are available (RagBench mode), recall/mrr are printed
+ * BEFORE answer F1 so a low score is attributed to retrieval, not the LLM.
+ */
+async function runBenchmarkCli(
+  datasetName: string,
+  rows: Array<{ question: string; reference: string }>,
+  docs: RagDocument[],
+  retrievalQuestions: RetrievalQuestion[],
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const topK = 4;
+
+  // ── Retrieval gate (Layer 2) ──
+  if (retrievalQuestions.length > 0) {
+    const rq = evaluateRetrieval(retrievalQuestions, docs, topK);
+    console.log("─ Retrieval Quality (independent of LLM) ─");
+    console.log(`  Labeled questions:  ${rq.labeledCount}`);
+    console.log(`  Recall@${topK}:       ${(rq.recallAtK * 100).toFixed(0)}%`);
+    console.log(`  Precision@${topK}:    ${(rq.precisionAtK * 100).toFixed(0)}%`);
+    console.log(`  MRR:                ${rq.mrr.toFixed(3)}`);
+    for (const p of rq.perQuestion) {
+      console.log(`    ${p.recall >= 1 ? "HIT " : "miss"}  q=${p.questionId}  retrieved=[${p.retrievedIds.slice(0, 3).join(", ")}]`);
+    }
+    console.log("");
+  }
+
   const report = await runBenchmark(
     datasetName,
-    rows.map((r) => ({ question: r.question, reference: r.reference })),
+    rows,
     async (question) => {
-      const retrieved = keywordSearch(docs, question, 4);
+      const retrieved = await keywordSearch(docs, question, topK);
       const result = await runRagGraphWithRetrieval(question, async () => retrieved, {
         apiKeys: {},
       });
-      return {
-        answer: result.answer,
-      };
+      return { answer: result.answer };
     },
   );
 

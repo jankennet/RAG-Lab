@@ -43,15 +43,15 @@ const METRICS: MetricDef[] = [
     key: "answerRelevance",
     label: "Answer Relevance",
     question: "Does the context address the question?",
-    definition: "How relevant is the retrieved context to the question?",
+    definition: "Does the generated answer actually address the question asked?",
     suffix: "higher is better",
     isLatency: false,
   },
   {
-    key: "contextUtilization",
-    label: "Context Utilization",
-    question: "How well did we use the retrieved info?",
-    definition: "Does the context contain sufficient info to fully answer?",
+    key: "exactMatch",
+    label: "Exact Match",
+    question: "Does the answer match the ground truth?",
+    definition: "Normalized exact-match against the reference answer.",
     suffix: "higher is better",
     isLatency: false,
   },
@@ -100,6 +100,11 @@ function DetailRow({ q, idx }: { q: CompactQuestionResult; idx: number }) {
       >
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-xs text-muted font-mono shrink-0">Q{idx + 1}</span>
+          {q.answerStatus && q.answerStatus !== "answered" && (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-warning bg-warning/10 border border-warning/30 rounded-full px-2 py-0.5 shrink-0">
+              {q.answerStatus === "refused" ? "no answer" : "empty"}
+            </span>
+          )}
           <p className="text-sm truncate leading-snug">{q.question || "(empty question)"}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -110,6 +115,15 @@ function DetailRow({ q, idx }: { q: CompactQuestionResult; idx: number }) {
       </button>
       {open && (
         <div className="px-4 pb-4 pt-0 border-t border-line space-y-3 text-sm">
+          {q.answerStatus && q.answerStatus !== "answered" && (
+            <div className="bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 text-xs text-warning">
+              {q.answerStatus === "refused"
+                ? "Skipped: no answer produced (refused / “not enough context”). Relevance scored 0."
+                : q.generationError
+                ? `Skipped: ${q.generationError}`
+                : "Skipped: empty answer. Quality scored 0."}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-bg-alt rounded-lg px-3 py-2">
               <span className="text-xs text-muted block">Token F1</span>
@@ -126,10 +140,6 @@ function DetailRow({ q, idx }: { q: CompactQuestionResult; idx: number }) {
             <div className="bg-bg-alt rounded-lg px-3 py-2">
               <span className="text-xs text-muted block">Answer Relevance</span>
               <ScoreBadge score={q.answerRelevance} />
-            </div>
-            <div className="bg-bg-alt rounded-lg px-3 py-2">
-              <span className="text-xs text-muted block">Context Util</span>
-              <ScoreBadge score={q.contextUtilization} />
             </div>
           </div>
 
@@ -217,14 +227,38 @@ export default function BenchmarkDetailPage() {
           <p className="text-xs text-muted mt-1 font-mono">
             {run.provider}/{run.model}
           </p>
+
+          {/* Answer-status breakdown — why the scores are what they are */}
+          <div className="flex flex-wrap gap-2 mt-3">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-success bg-success/10 border border-success/20 rounded-full px-2 py-0.5">
+              answered {run.answeredCount ?? 0}
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-warning bg-warning/10 border border-warning/30 rounded-full px-2 py-0.5">
+              no answer {run.refusedCount ?? 0}
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-danger bg-danger/10 border border-danger/30 rounded-full px-2 py-0.5">
+              empty {run.emptyCount ?? 0}
+            </span>
+            {!!run.errorCount && (
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-danger bg-danger/10 border border-danger/30 rounded-full px-2 py-0.5">
+                errors {run.errorCount}
+              </span>
+            )}
+          </div>
+          {!!run.emptyCount && !run.errorCount && run.emptyCount === run.totalQuestions && (
+            <p className="text-xs text-danger mt-2">
+              All unanswered. The generation API was never called — most likely no API key for
+              provider "{run.provider}". Add it in Settings (stored server-side).
+            </p>
+          )}
         </div>
 
         {/* Metric cards */}
-        <div className="grid grid-cols-5 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 mb-8">
           {METRICS.map((m) => {
-            const val = run.metrics[m.key];
+            const val = run.metrics[m.key] ?? 0;
             return (
-              <div key={m.key} className="bg-bg-alt rounded-2xl border border-line p-5">
+              <div key={m.key} className="bg-bg-alt rounded-2xl border border-line p-6">
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h3 className="font-semibold text-sm">{m.label}</h3>

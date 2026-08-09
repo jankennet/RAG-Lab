@@ -61,7 +61,7 @@ function ModelRow({ entry, isBest }: { entry: ModelEntry; isBest: boolean }) {
       <td className="py-2.5 px-3"><Cell value={m.tokenF1} label="f1" best={isBest} /></td>
       <td className="py-2.5 px-3"><Cell value={m.faithfulness} label="faith" best={isBest} /></td>
       <td className="py-2.5 px-3"><Cell value={m.answerRelevance} label="relv" best={isBest} /></td>
-      <td className="py-2.5 px-3"><Cell value={m.contextUtilization} label="ctx" best={isBest} /></td>
+      <td className="py-2.5 px-3"><Cell value={m.exactMatch ?? 0} label="exact" best={isBest} /></td>
       <td className="py-2.5 px-3"><Cell value={m.latencyMs} label="latency" best={isBest} /></td>
     </tr>
   );
