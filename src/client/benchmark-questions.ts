@@ -196,3 +196,12 @@ export async function deleteQuestionSet(id: string): Promise<void> {
   const index = await loadIndex();
   await saveIndex(index.filter((i) => i !== id));
 }
+
+export async function deleteAllQuestionSets(): Promise<void> {
+  const root = await rootDir();
+  try {
+    await root.removeEntry(PARENT_DIR, { recursive: true });
+  } catch {
+    // Directory may not exist — nothing to delete
+  }
+}

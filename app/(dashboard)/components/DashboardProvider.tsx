@@ -21,6 +21,7 @@ import {
   loadChatThreads,
   saveChatThread as saveChatThreadStore,
 } from "@/client/opfs";
+import { deleteAllQuestionSets } from "@/client/benchmark-questions";
 
 type ApiKeyStatus = Record<string, { validated: boolean; hasKey: boolean }>;
 
@@ -49,6 +50,7 @@ type DashboardContextValue = {
 export type NukeOptions = {
   apiKeys?: boolean;
   datasets?: boolean;
+  questionSets?: boolean;
   chats?: boolean;
   benchmarks?: boolean;
   preferences?: boolean;
@@ -57,6 +59,7 @@ export type NukeOptions = {
 const DEFAULT_NUKE_OPTIONS: Required<NukeOptions> = {
   apiKeys: true,
   datasets: true,
+  questionSets: true,
   chats: true,
   benchmarks: true,
   preferences: true,
@@ -252,6 +255,14 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     if (opts.chats) {
       try {
         await deleteAllChats();
+      } catch {
+        // OPFS may not be available
+      }
+    }
+
+    if (opts.questionSets) {
+      try {
+        await deleteAllQuestionSets();
       } catch {
         // OPFS may not be available
       }

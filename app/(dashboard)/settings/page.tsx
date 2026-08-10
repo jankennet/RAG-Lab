@@ -11,6 +11,15 @@ const PROVIDER_LABELS: Record<LlmProvider, string> = {
   anthropic: "Anthropic",
 };
 
+const DEFAULT_NUKE_SCOPE = {
+  apiKeys: true,
+  datasets: true,
+  questionSets: true,
+  chats: true,
+  benchmarks: true,
+  preferences: true,
+};
+
 export default function SettingsPage() {
   const {
     preferences,
@@ -34,15 +43,18 @@ export default function SettingsPage() {
   const [nukeConfirm, setNukeConfirm] = useState("");
   const [nuking, setNuking] = useState(false);
   const [nukeDone, setNukeDone] = useState(false);
-  const [nukeScope, setNukeScope] = useState({
-    apiKeys: true,
-    datasets: true,
-    chats: true,
-    benchmarks: true,
-    preferences: true,
-  });
+  const [nukeScope, setNukeScope] = useState(DEFAULT_NUKE_SCOPE);
 
-  const anyScopeSelected = Object.values(nukeScope).some(Boolean);
+  const NIKE_SCOPE_LABELS: { key: keyof typeof nukeScope; label: string }[] = [
+  { key: "apiKeys", label: "API Keys" },
+  { key: "datasets", label: "Datasets" },
+  { key: "questionSets", label: "Question sets" },
+  { key: "chats", label: "Chats" },
+  { key: "benchmarks", label: "Benchmark results" },
+  { key: "preferences", label: "Preferences" },
+];
+
+const anyScopeSelected = Object.values(nukeScope).some(Boolean);
   const [modelsFetchedLive, setModelsFetchedLive] = useState(false);
 
   const selectedProvider = PROVIDERS.find((p) => p.value === preferences.provider);
@@ -472,19 +484,46 @@ export default function SettingsPage() {
                     spellCheck={false}
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-2">
+                    Select what to delete
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {NIKE_SCOPE_LABELS.map(({ key, label }) => (
+                      <label
+                        key={key}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#03111a] border border-line cursor-pointer text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={nukeScope[key]}
+                          onChange={(e) =>
+                            setNukeScope((prev) => ({ ...prev, [key]: e.target.checked }))
+                          }
+                          className="accent-danger"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  {!anyScopeSelected && (
+                    <p className="text-xs text-danger mt-2">Select at least one item to delete.</p>
+                  )}
+                </div>
                 <button
                   onClick={async () => {
-                    if (nukeConfirm !== "DELETE") return;
+                    if (nukeConfirm !== "DELETE" || !anyScopeSelected) return;
                     setNuking(true);
-                    await nukeEverything();
+                    await nukeEverything(nukeScope);
                     setNuking(false);
                     setNukeDone(true);
                     setNukeConfirm("");
+                    setNukeScope(DEFAULT_NUKE_SCOPE);
                   }}
-                  disabled={nukeConfirm !== "DELETE" || nuking}
+                  disabled={nukeConfirm !== "DELETE" || nuking || !anyScopeSelected}
                   className="w-full px-4 py-2.5 bg-danger text-white font-semibold rounded-xl hover:bg-danger/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {nuking ? "Deleting..." : nukeConfirm === "DELETE" ? "Delete Everything" : "Delete Everything (type DELETE above)"}
+                  {nuking ? "Deleting..." : nukeConfirm === "DELETE" ? "Delete Selected" : "Delete Selected (type DELETE above)"}
                 </button>
               </div>
             )}
