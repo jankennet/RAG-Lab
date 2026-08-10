@@ -2,15 +2,9 @@
 // All data stored locally in the browser.
 // Chunking delegates to the shared strategy-pattern chunker.
 
-import {
-  FixedSizeChunker,
-  RecursiveChunker,
-  StructuredChunker,
-  detectDocumentType,
-  selectChunker,
-  type DocumentType,
-} from "@/server/rag/chunker";
-import type { ChatAttachment, ChatScope, ChatThread } from "@/shared/types";
+import { FixedSizeChunker, selectChunker, type DocumentType,} from "@/server/rag/chunker";
+import type { ChatScope, ChatThread } from "@/shared/types";
+import { bm25Search,} from "@/shared/bm25";
 
 export type OpfsDataset = {
   id: string;
@@ -518,20 +512,11 @@ export async function loadBenchmarkRun(id: string): Promise<BenchmarkRun | null>
 
 // ── Keyword Search ─────────────────────────────────────────────
 
-/**
- * Simple keyword-based search. Tokenizes query and documents,
- * scores by # of matching words (case-insensitive).
- */
 export async function searchDocuments(
   _datasetId: string | null,
   query: string,
   topK = 4,
 ): Promise<OpfsDocument[]> {
-  const queryTokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => t.length > 1);
-
   const index = await loadIndex();
   const targets = _datasetId
     ? index.filter((d) => d.id === _datasetId)
@@ -543,35 +528,14 @@ export async function searchDocuments(
     allDocs.push(...docs);
   }
 
-  if (queryTokens.length === 0) {
-    return allDocs.slice(0, topK);
-  }
+  // Create a lookup map of original OpfsDocuments by sourceKey
+  const docMap = new Map(allDocs.map((doc) => [doc.sourceKey, doc]));
 
-  const scored = allDocs.map((doc) => {
-    const contentLower = doc.content.toLowerCase();
-    const titleLower = (doc.title || "").toLowerCase();
-    let score = 0;
-    for (const token of queryTokens) {
-      const titleCount = countOverlap(titleLower, token);
-      score += titleCount * 3;
-      score += countOverlap(contentLower, token);
-    }
-    return { doc, score };
-  });
+  // OpfsDocument natively satisfies SearchableDoc
+  const results = bm25Search(allDocs, query, { topK });
 
-  scored.sort((a, b) => b.score - a.score);
-
-  return scored.slice(0, topK).map((s) => s.doc);
-}
-
-function countOverlap(text: string, token: string): number {
-  let count = 0;
-  let pos = 0;
-  while (pos < text.length) {
-    const idx = text.indexOf(token, pos);
-    if (idx === -1) break;
-    count++;
-    pos = idx + token.length;
-  }
-  return count;
+  // Retrieve original full OpfsDocument objects
+  return results
+    .map((res) => docMap.get(res.sourceKey))
+    .filter((doc): doc is OpfsDocument => doc !== undefined);
 }

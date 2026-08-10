@@ -199,7 +199,7 @@ const runBenchmarkSchema = z.object({
     title: z.string().optional(),
     content: z.string(),
   })).min(1),
-  topK: z.number().int().min(1).max(100).default(5),
+  topK: z.number().int().min(1).max(100).default(10),
   provider: z.enum(["nvidia", "openai", "anthropic"]).default("nvidia"),
   model: z.string().min(1).default("meta/llama-3.3-70b-instruct"),
 });
