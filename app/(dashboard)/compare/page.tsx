@@ -93,7 +93,7 @@ export default function ComparePage() {
   const modelCount = new Set(completedRuns.map((run) => `${run.provider}/${run.model}`)).size;
   const datasetCount = new Set(completedRuns.map((run) => run.datasetId)).size;
 
-  if (loading) {
+  if (loading && runs.length === 0) {
     return <PageTableSkeleton />;
   }
 

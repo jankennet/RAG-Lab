@@ -191,7 +191,7 @@ export default function BenchmarkDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) {
+  if (loading && !run) {
     return (
       <PageDetailSkeleton />
     );

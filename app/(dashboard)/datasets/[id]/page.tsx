@@ -56,7 +56,9 @@ export default function DatasetDetailPage() {
     }
   };
 
-  if (loading) {
+  // Skeleton only on first load — once the dataset exists, keep content mounted
+  // (so re-index refetches never blank the page; the button shows inline state).
+  if (loading && !dataset) {
     return (
       <PageDetailSkeleton />
     );

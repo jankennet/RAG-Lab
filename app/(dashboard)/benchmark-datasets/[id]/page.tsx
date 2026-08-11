@@ -57,7 +57,7 @@ export default function BenchmarkDatasetDetailPage() {
     }
   };
 
-  if (loading) {
+  if (loading && !set) {
     return <PageDetailSkeleton />;
   }
 
