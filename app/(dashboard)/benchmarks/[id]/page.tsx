@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { loadBenchmarkRun } from "@/client/opfs";
 import type { CompactQuestionResult, BenchmarkRun, BenchmarkMetrics } from "@/client/opfs";
+import { PageDetailSkeleton } from "../../components/Skeleton";
 
 type MetricDef = {
   key: keyof BenchmarkMetrics;
@@ -192,11 +193,7 @@ export default function BenchmarkDetailPage() {
 
   if (loading) {
     return (
-      <div className="h-full overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-8">
-          <p className="text-muted text-center py-12">Loading benchmark detail...</p>
-        </div>
-      </div>
+      <PageDetailSkeleton />
     );
   }
 

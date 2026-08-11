@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useDashboard } from "../components/DashboardProvider";
 import type { LlmProvider } from "@/shared/types";
 import { PROVIDERS } from "@/shared/types";
+import { PageSettingsSkeleton } from "../components/Skeleton";
 
 const PROVIDER_LABELS: Record<LlmProvider, string> = {
   nvidia: "NVIDIA NIM",
@@ -32,6 +33,7 @@ export default function SettingsPage() {
     submitApiKey,
     apiKeyStatus,
     nukeEverything,
+    mounted,
   } = useDashboard();
 
   const [activeTab, setActiveTab] = useState<"models" | "apiKeys" | "data">("models");
@@ -115,6 +117,10 @@ const anyScopeSelected = Object.values(nukeScope).some(Boolean);
     await submitApiKey(provider, key);
     setSubmitting((prev) => ({ ...prev, [provider]: false }));
   };
+
+  if (!mounted) {
+    return <PageSettingsSkeleton />;
+  }
 
   return (
     <div className="h-full overflow-y-auto">

@@ -13,11 +13,12 @@ import {
 } from "@/client/opfs";
 import type { OpfsDataset } from "@/client/opfs";
 import DatasetCard from "@/app/(dashboard)/components/DatasetCard";
+import { PageListSkeleton } from "@/app/(dashboard)/components/Skeleton";
 
 type SourceType = "huggingface" | "upload";
 
 export default function DatasetsPage() {
-  const { setActiveDataset, preferences } = useDashboard();
+  const { preferences } = useDashboard();
   const [datasets, setDatasets] = useState<OpfsDataset[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -106,9 +107,6 @@ export default function DatasetsPage() {
     loadHfSplits(hfDatasetId, hfConfig);
   }, [hfConfig, hfDatasetId, source, loadHfSplits]);
 
-  // URL field
-  const [sourceUrl, setSourceUrl] = useState("");
-
   // Upload state — multiple files
   const [dragOver, setDragOver] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -139,7 +137,6 @@ export default function DatasetsPage() {
     setHfSplits([]);
     setHfSplit("train");
     setHfMaxRows("100");
-    setSourceUrl("");
     setSelectedFiles([]);
     setAddError(null);
     setUploadProgress(null);
@@ -258,7 +255,7 @@ export default function DatasetsPage() {
           if (f.name.toLowerCase().endsWith(".json")) {
             try { content = JSON.stringify(JSON.parse(raw), null, 2); } catch {}
           }
-          parsedTextFiles.push({ filename: f.name, content });
+          parsedTextFiles.push({ filename: (f as File).name, content });
         }
 
         // Parse binary files server-side
@@ -288,7 +285,7 @@ export default function DatasetsPage() {
         let allContent = "";
         const mergedMetadata: Record<string, unknown> = { files: [] as string[] };
         for (const pf of parsedTextFiles) {
-          allContent += `\n\n=== ${pf.filename} ===\n\n${pf.content}`;
+          allContent += `\n\n=== ${pf.filename} ===\n\n${pf.content}\n`;
           (mergedMetadata.files as string[]).push(pf.filename);
         }
 
@@ -354,12 +351,16 @@ export default function DatasetsPage() {
 
   // ── Render ───────────────────────────────────────────────
 
+  // Form/header interactive no matter what — only the list section skips until
+  // data lands. This keeps Add Dataset usable while OPFS reads in the background.
+  const showListSkeleton = loading && datasets.length === 0;
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-8">
         <h1 className="text-2xl font-bold mb-8">Datasets</h1>
 
-        {/* Add form */}
+        {/* Add form — independent of dataset list loader */}
         <div className="bg-bg-alt rounded-2xl border border-line p-6 mb-8">
           <h2 className="font-semibold mb-4">Add New Dataset</h2>
           <form onSubmit={handleAdd} className="space-y-4">
@@ -373,7 +374,7 @@ export default function DatasetsPage() {
                 className="w-full px-3 py-2.5 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
                 placeholder="e.g., My Knowledge Base"
               />
-            </div>
+           </div>
 
             <div>
               <label className="block text-sm font-medium text-muted mb-1.5">Source</label>
@@ -384,8 +385,8 @@ export default function DatasetsPage() {
               >
                 <option value="huggingface">HuggingFace</option>
                 <option value="upload">Upload Files</option>
-              </select>
-            </div>
+             </select>
+           </div>
 
             {/* ── HuggingFace fields ── */}
             {source === "huggingface" && (
@@ -402,8 +403,8 @@ export default function DatasetsPage() {
                   />
                   <p className="mt-2 text-xs text-muted">
                     HF ingest keeps only documents/context fields. Answer, model, score, and eval columns are skipped.
-                  </p>
-                </div>
+                 </p>
+               </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-muted mb-1">Subset</label>
@@ -416,7 +417,7 @@ export default function DatasetsPage() {
                         {hfConfigs.map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
-                      </select>
+                     </select>
                     ) : (
                       <input
                         type="text"
@@ -426,7 +427,7 @@ export default function DatasetsPage() {
                         placeholder={hfConfigsLoading ? "Loading subsets..." : "default"}
                       />
                     )}
-                  </div>
+                 </div>
                   <div>
                     <label className="block text-xs font-medium text-muted mb-1">Split</label>
                     {hfSplits.length > 0 ? (
@@ -438,7 +439,7 @@ export default function DatasetsPage() {
                         {hfSplits.map((s) => (
                           <option key={s.split} value={s.split}>{s.split}</option>
                         ))}
-                      </select>
+                     </select>
                     ) : (
                       <input
                         type="text"
@@ -448,7 +449,7 @@ export default function DatasetsPage() {
                         placeholder={hfSplitsLoading ? "Loading splits..." : "train"}
                       />
                     )}
-                  </div>
+                 </div>
                   <div>
                     <label className="block text-xs font-medium text-muted mb-1">Max Rows</label>
                     <input
@@ -459,9 +460,9 @@ export default function DatasetsPage() {
                       max={100000}
                       className="w-full px-3 py-2 bg-[#03111a] border border-line rounded-xl text-sm text-text outline-none focus:border-accent/40 transition-colors"
                     />
-                  </div>
-                </div>
-              </div>
+                 </div>
+               </div>
+             </div>
             )}
 
             {/* ── Multi-file upload drop zone ── */}
@@ -469,7 +470,7 @@ export default function DatasetsPage() {
               <div>
                 <label className="block text-sm font-medium text-muted mb-1.5">
                   Files ({selectedFiles.length} selected)
-                </label>
+               </label>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -495,20 +496,20 @@ export default function DatasetsPage() {
                     <div>
                       <p className="text-sm font-medium text-text">
                         {selectedFiles.length} file(s) — {(totalSize / 1024).toFixed(1)} KB total
-                      </p>
+                     </p>
                       <p className="text-xs text-accent mt-1">Drop more or click to add</p>
-                    </div>
+                   </div>
                   ) : (
                     <div>
                       <p className="text-sm font-medium text-text">
                         Drop files here or click to browse
-                      </p>
+                     </p>
                       <p className="text-xs text-muted mt-1">
                         TXT, JSON, CSV, MD, HTML, SQL, PDF, DOCX, XLSX, images · Stored in OPFS (browser storage)
-                      </p>
-                    </div>
+                     </p>
+                   </div>
                   )}
-                </div>
+               </div>
 
                 {/* File list */}
                 {selectedFiles.length > 0 && (
@@ -521,7 +522,7 @@ export default function DatasetsPage() {
                         <span className="text-text truncate mr-3 flex-1 min-w-0">{f.name}</span>
                         <span className="text-muted flex-shrink-0 mr-3">
                           {(f.size / 1024).toFixed(1)} KB
-                        </span>
+                       </span>
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); removeFile(i); }}
@@ -529,9 +530,9 @@ export default function DatasetsPage() {
                         >
                           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                             <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                          </svg>
-                        </button>
-                      </div>
+                         </svg>
+                       </button>
+                     </div>
                     ))}
                     <button
                       type="button"
@@ -539,10 +540,10 @@ export default function DatasetsPage() {
                       className="text-xs text-muted hover:text-danger transition-colors mt-1 block"
                     >
                       Clear all
-                    </button>
-                  </div>
+                   </button>
+                 </div>
                 )}
-              </div>
+             </div>
             )}
 
             {/* Error */}
@@ -561,15 +562,15 @@ export default function DatasetsPage() {
               className="w-full px-4 py-2.5 bg-accent text-[#03111a] font-semibold rounded-xl hover:bg-accent-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isAdding ? "Adding..." : "Add Dataset"}
-            </button>
-          </form>
-        </div>
+           </button>
+         </form>
+       </div>
 
-        {/* Dataset list */}
-        {loading ? (
-          <p className="text-muted text-center py-12">Loading datasets...</p>
+        {/* Dataset list — skeleton only on first load, content streams in once ready */}
+        {showListSkeleton ? (
+          <PageListSkeleton itemCount={4} />
         ) : datasets.length === 0 ? (
-          <p className="text-muted text-center py-12">No datasets yet. Add one above!</p>
+          <p className="text-muted text-center py-12">No datasets yet. Add one above</p>
         ) : (
           <div>
             <h2 className="font-semibold mb-4">Your Datasets ({datasets.length})</h2>
@@ -589,7 +590,7 @@ export default function DatasetsPage() {
                         status: "ready" as const,
                       }}
                     />
-                  </Link>
+                 </Link>
                   <button
                     onClick={(e) => {
                       e.preventDefault();
@@ -598,13 +599,13 @@ export default function DatasetsPage() {
                     className="absolute top-3 right-3 text-xs text-muted hover:text-danger transition-colors opacity-0 group-hover:opacity-100"
                   >
                     Delete
-                  </button>
-                </div>
+                 </button>
+               </div>
               ))}
-            </div>
-          </div>
+           </div>
+         </div>
         )}
-      </div>
-    </div>
+     </div>
+   </div>
   );
 }

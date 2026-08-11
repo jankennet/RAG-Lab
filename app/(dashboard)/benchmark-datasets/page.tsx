@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { loadQuestionSets, createQuestionSet, saveQuestions } from "@/client/benchmark-questions";
 import type { BenchmarkQuestionSet } from "@/client/benchmark-questions";
+import { PageListSkeleton } from "../components/Skeleton";
 
 export default function BenchmarkDatasetsPage() {
   const [questionSets, setQuestionSets] = useState<BenchmarkQuestionSet[]>([]);
@@ -216,8 +217,8 @@ export default function BenchmarkDatasetsPage() {
           </div>
         )}
 
-        {loading ? (
-          <p className="text-muted text-center py-12">Loading...</p>
+        {loading && questionSets.length === 0 ? (
+          <PageListSkeleton itemCount={4} />
         ) : questionSets.length === 0 ? (
           <div className="bg-bg-alt border border-line rounded-2xl p-8 text-center">
             <p className="text-muted text-sm mb-2">No question sets yet.</p>

@@ -30,6 +30,8 @@ type DashboardContextValue = {
   apiKeyStatus: ApiKeyStatus;
   chatThreads: ChatThread[];
   activeChatId: string;
+  /** True after the first client effect has run (preferences hydrated, threads loading kicked off). */
+  mounted: boolean;
   setProvider: (provider: LlmProvider) => void;
   setModel: (model: string) => void;
   setTopK: (topK: number) => void;
@@ -39,6 +41,9 @@ type DashboardContextValue = {
   submitApiKey: (provider: LlmProvider, key: string) => Promise<boolean>;
   setActiveDataset: (datasetId: string) => void;
   setActiveChatId: (chatId: string) => void;
+  /** Build a thread synchronously in memory, navigate immediately. OPFS persist happens in the background. */
+  createDraftChatThread: (meta?: { title?: string; scope?: ChatScope; datasetId?: string | null }) => ChatThread;
+  /** Async, persisted. Used by callers that need the thread on disk before continuing. */
   createChatThread: (meta?: { title?: string; scope?: ChatScope; datasetId?: string | null }) => Promise<ChatThread>;
   saveChatThread: (thread: ChatThread) => Promise<void>;
   deleteChatThread: (chatId: string) => Promise<void>;
@@ -219,6 +224,29 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     return thread;
   }, [setActiveChatId]);
 
+  // Synthesize a thread locally so callers can navigate to /chats/<id> without
+  // waiting for OPFS writes. Persistence happens in the background; if it
+  // fails, the chat still works for the current session and is rewritten on
+  // the next persistChatThread call from ChatView.
+  const createDraftChatThread = useCallback((meta?: { title?: string; scope?: ChatScope; datasetId?: string | null }): ChatThread => {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const thread: ChatThread = {
+      id,
+      title: meta?.title ?? "New chat",
+      scope: meta?.scope ?? "chat",
+      datasetId: meta?.datasetId ?? null,
+      attachments: [],
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    setChatThreads((prev) => [thread, ...prev.filter((item) => item.id !== id)]);
+    setActiveChatId(id);
+    void saveChatThreadStore(thread).catch(() => {});
+    return thread;
+  }, [setActiveChatId]);
+
   const saveChatThread = useCallback(async (thread: ChatThread) => {
     await saveChatThreadStore(thread);
     await refreshChatThreads();
@@ -306,6 +334,7 @@ export default function DashboardProvider({ children }: { children: ReactNode })
         apiKeyStatus,
         chatThreads,
         activeChatId,
+        mounted,
         setProvider,
         setModel,
         setTopK,
@@ -316,6 +345,7 @@ export default function DashboardProvider({ children }: { children: ReactNode })
         setActiveDataset,
         setActiveChatId,
         createChatThread,
+        createDraftChatThread,
         saveChatThread,
         deleteChatThread,
         refreshChatThreads,

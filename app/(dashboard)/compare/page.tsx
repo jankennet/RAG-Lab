@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { loadBenchmarkRuns } from "@/client/opfs";
 import type { BenchmarkRun, BenchmarkMetrics } from "@/client/opfs";
+import { PageTableSkeleton } from "../components/Skeleton";
 
 type TrendMetric = keyof Pick<BenchmarkMetrics, "tokenF1" | "faithfulness" | "answerRelevance" | "exactMatch" | "latencyMs">;
 
@@ -93,13 +94,7 @@ export default function ComparePage() {
   const datasetCount = new Set(completedRuns.map((run) => run.datasetId)).size;
 
   if (loading) {
-    return (
-      <div className="h-full overflow-y-auto">
-        <div className="max-w-6xl mx-auto px-6 py-8">
-          <p className="text-muted text-center py-12">Loading compare view...</p>
-        </div>
-      </div>
-    );
+    return <PageTableSkeleton />;
   }
 
   if (error) {

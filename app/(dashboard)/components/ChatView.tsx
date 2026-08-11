@@ -20,6 +20,7 @@ import {
 } from "@/client/opfs";
 import { v4 as uuidv4 } from "uuid";
 import type { ChatAttachment, ChatScope, ChatThread, LlmProvider, RagDocument } from "@/shared/types";
+import { ChatConversationSkeleton } from "./Skeleton";
 
 const TEXT_EXTS = new Set([".txt", ".md", ".text", ".rst", ".html", ".htm", ".xml", ".csv", ".json", ".jsonl", ".sql"]);
 const OCR_HINT_EXTS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"]);
@@ -74,6 +75,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
     setActiveDataset,
     saveChatThread: persistChatThread,
     refreshChatThreads,
+    chatThreads,
   } = useDashboard();
   const [thread, setThread] = useState<ChatThread | null>(null);
   const [input, setInput] = useState("");
@@ -115,6 +117,20 @@ export default function ChatView({ chatId }: { chatId: string }) {
     setThread(null);
     setInput("");
 
+    // Prefer the in-memory draft — avoids the OPFS roundtrip (and a "Loading…"
+    // hang) when the user just clicked the + button.
+    const inMemory = chatThreads.find((t) => t.id === chatId);
+    if (inMemory) {
+      setThread(inMemory);
+      setUseOcr(inMemory.attachments.every((attachment) => attachment.ocrEnabled));
+      if (inMemory.scope === "dataset" && inMemory.datasetId) {
+        setActiveDataset(inMemory.datasetId);
+      }
+      return () => {
+        active = false;
+      };
+    }
+
     async function loadThread() {
       if (!chatId) return;
       const loaded = await loadChatThread(chatId);
@@ -134,7 +150,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
     return () => {
       active = false;
     };
-  }, [chatId, setActiveDataset]);
+  }, [chatId, chatThreads, setActiveDataset]);
 
   useEffect(() => {
     if (thread?.scope === "dataset" && thread.datasetId) {
@@ -487,11 +503,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
   );
 
   if (!thread) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-muted">
-        Loading conversation…
-     </div>
-    );
+    return <ChatConversationSkeleton />;
   }
 
   return (

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { loadIndex, loadBenchmarkRuns } from "@/client/opfs";
+import { Skeleton } from "../components/Skeleton";
 
 function formatCount(count: number, label: string): string {
   return `${count} ${label}${count === 1 ? "" : "s"}`;
@@ -11,6 +12,7 @@ export default function AboutPage() {
   const [datasetCount, setDatasetCount] = useState(0);
   const [chunkCount, setChunkCount] = useState(0);
   const [completedRuns, setCompletedRuns] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -27,6 +29,9 @@ export default function AboutPage() {
         setDatasetCount(0);
         setChunkCount(0);
         setCompletedRuns(0);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
 
     return () => {
@@ -48,9 +53,9 @@ export default function AboutPage() {
         <section className="grid gap-4 md:grid-cols-2">
           <div className="rounded-2xl border border-line bg-bg-alt p-5 space-y-2">
             <p className="text-xs uppercase tracking-wider text-muted">OPFS</p>
-            <p className="font-medium text-text">{formatCount(datasetCount, "dataset")}</p>
-            <p className="text-sm text-muted">{formatCount(chunkCount, "chunk")} stored locally</p>
-            <p className="text-sm text-muted">{formatCount(completedRuns, "completed benchmark run")}</p>
+            <p className="font-medium text-text">{loading ? <Skeleton className="h-5 w-28 inline-block" /> : formatCount(datasetCount, "dataset")}</p>
+            <p className="text-sm text-muted">{loading ? <Skeleton className="h-4 w-40 inline-block" /> : `${formatCount(chunkCount, "chunk")} stored locally`}</p>
+            <p className="text-sm text-muted">{loading ? <Skeleton className="h-4 w-44 inline-block" /> : formatCount(completedRuns, "completed benchmark run")}</p>
           </div>
 
           <div className="rounded-2xl border border-line bg-bg-alt p-5 space-y-2">

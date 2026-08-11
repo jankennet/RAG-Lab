@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { loadQuestionSetMeta, loadQuestions, deleteQuestionSet } from "@/client/benchmark-questions";
 import type { BenchmarkQuestionSet, BenchmarkQuestion } from "@/client/benchmark-questions";
+import { PageDetailSkeleton } from "../../components/Skeleton";
 
 export default function BenchmarkDatasetDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -57,13 +58,7 @@ export default function BenchmarkDatasetDetailPage() {
   };
 
   if (loading) {
-    return (
-      <div className="h-full overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-8">
-          <p className="text-muted text-center py-12">Loading question set...</p>
-        </div>
-      </div>
-    );
+    return <PageDetailSkeleton />;
   }
 
   if (error || !set) {

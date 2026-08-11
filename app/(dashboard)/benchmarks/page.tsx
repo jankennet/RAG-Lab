@@ -13,6 +13,7 @@ import {
 import type { BenchmarkQuestionSet, BenchmarkQuestion } from "@/client/benchmark-questions";
 import { useDashboard } from "../components/DashboardProvider";
 import ModelSelector from "../components/ModelSelector";
+import { PageTableSkeleton } from "../components/Skeleton";
 
 function ScoreBadge({ score }: { score: number }) {
   const pct = (score * 100).toFixed(1);
@@ -482,8 +483,8 @@ export default function BenchmarksPage() {
           </div>
         )}
 
-        {loading ? (
-          <p className="text-muted text-center py-12">Loading benchmarks...</p>
+        {loading && questionSets.length === 0 ? (
+          <PageTableSkeleton />
         ) : runs.length === 0 ? (
           <p className="text-muted text-center py-12">
             No benchmarks yet. Import a question set and trigger one above!

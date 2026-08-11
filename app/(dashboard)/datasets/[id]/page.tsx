@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import DatasetCard from "../../components/DatasetCard";
 import SourceCard from "../../components/SourceCard";
+import { PageDetailSkeleton } from "../../components/Skeleton";
 import { loadIndex, loadDocuments, chunkText, makeDocuments, updateDatasetChunks } from "@/client/opfs";
 import type { OpfsDataset, OpfsDocument } from "@/client/opfs";
 
@@ -57,11 +58,7 @@ export default function DatasetDetailPage() {
 
   if (loading) {
     return (
-      <div className="h-full overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-8">
-          <p className="text-muted text-center py-12">Loading dataset...</p>
-        </div>
-      </div>
+      <PageDetailSkeleton />
     );
   }
 

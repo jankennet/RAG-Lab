@@ -4,10 +4,11 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDashboard } from "./components/DashboardProvider";
+import { Skeleton } from "./components/Skeleton";
 
 export default function DashboardHome() {
   const router = useRouter();
-  const { chatThreads, createChatThread, activeChatId } = useDashboard();
+  const { chatThreads, createDraftChatThread, activeChatId, mounted } = useDashboard();
 
   // The chat view renders on its own route (/chats/[id]). This room is the
   // doorway: if a chat is already active, send the viewer straight to it.
@@ -17,8 +18,8 @@ export default function DashboardHome() {
     }
   }, [activeChatId, router]);
 
-  const handleNewChat = async () => {
-    const thread = await createChatThread({ title: "New chat", scope: "chat", datasetId: null });
+  const handleNewChat = () => {
+    const thread = createDraftChatThread({ title: "New chat", scope: "chat", datasetId: null });
     router.push(`/chats/${thread.id}`);
   };
 
@@ -31,7 +32,7 @@ export default function DashboardHome() {
           Pick a conversation below or start a new one.
         </p>
         <button
-          onClick={() => void handleNewChat()}
+          onClick={handleNewChat}
           className="mt-8 inline-flex items-center gap-2 px-5 py-3 text-sm font-semibold bg-accent text-[#03111a] rounded-2xl hover:bg-accent-hover transition-colors"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
@@ -44,11 +45,17 @@ export default function DashboardHome() {
       <div className="max-w-3xl w-full mx-auto px-6 pb-10">
         <h2 className="text-xs font-semibold text-muted tracking-wider uppercase mb-3">Recent chats</h2>
         <div className="space-y-2">
-          {chatThreads.length === 0 && (
+          {!mounted ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full rounded-xl" />
+              ))}
+            </div>
+          ) : chatThreads.length === 0 ? (
             <p className="text-sm text-muted bg-panel/40 border border-line rounded-xl px-4 py-3">
               No conversations yet. Start a new chat to ask about your datasets.
             </p>
-          )}
+          ) : null}
           {chatThreads.map((thread) => (
             <Link
               key={thread.id}
