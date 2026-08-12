@@ -3,13 +3,13 @@
 // Chunking delegates to the shared strategy-pattern chunker.
 
 import { FixedSizeChunker, selectChunker, type DocumentType,} from "@/server/rag/chunker";
-import type { ChatScope, ChatThread } from "@/shared/types";
+import type { ChatScope, ChatThread, DatasetSource } from "@/shared/types";
 import { bm25Search,} from "@/shared/bm25";
 
 export type OpfsDataset = {
   id: string;
   name: string;
-  source: "huggingface" | "upload" | "url";
+  source: DatasetSource;
   sourceUrl: string | null;
   rowCount: number;
   chunkCount: number;
@@ -342,6 +342,10 @@ export async function deleteAllBenchmarks(): Promise<void> {
 /**
  * Legacy backward-compat: fixed-size chunk.
  * Delegates to FixedSizeChunker from the shared module.
+ *
+ * @deprecated Prefer `smartChunkText`, which auto-detects structured (JSON) vs
+ * unstructured (prose) content — fixed-size chunking silently mangles JSON rows.
+ * Kept only for callers that intentionally want a fixed-size cut.
  */
 export function chunkText(text: string, chunkSize = 1000, overlap = 150): string[] {
   return new FixedSizeChunker().split(text, { chunkSize, chunkOverlap: overlap });
@@ -383,6 +387,28 @@ export function smartChunkText(
     chunkSize: options?.chunkSize,
     chunkOverlap: options?.chunkOverlap,
   });
+}
+
+/**
+ * Re-chunk an existing dataset: join every document's content, re-split with
+ * `smartChunkText` at the default 1000/150 size, and persist back. Lifted from
+ * the inline `handleReindex` in datasets/[id]/page.tsx so other callers (batch
+ * reindex, settings) can reuse it. Uses smartChunkText (auto-detects JSON vs
+ * prose) rather than the legacy fixed-size `chunkText` the page used before.
+ */
+export async function reindexDataset(id: string): Promise<OpfsDocument[]> {
+  const docs = await loadDocuments(id);
+  const allContent = docs.map((d) => d.content).join("\n\n");
+  const newChunks = smartChunkText(allContent, { chunkSize: 1000, chunkOverlap: 150 });
+
+  // Preserve the dataset name for the regenerate sourceKey/title scheme.
+  const index = await loadIndex();
+  const ds = index.find((d) => d.id === id);
+  const name = ds?.name ?? id;
+
+  const newDocs = makeDocuments(name, null, name, newChunks, { reindexed: true });
+  await updateDatasetChunks(id, newDocs);
+  return newDocs;
 }
 
 // ── Benchmark Storage ─────────────────────────────────────────
