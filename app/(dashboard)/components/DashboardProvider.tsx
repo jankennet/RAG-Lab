@@ -23,7 +23,7 @@ import {
 } from "@/client/opfs";
 import { deleteAllQuestionSets } from "@/client/benchmark-questions";
 
-type ApiKeyStatus = Record<string, { validated: boolean; hasKey: boolean }>;
+export type ApiKeyStatus = Record<string, { validated: boolean; hasKey: boolean }>;
 
 type DashboardContextValue = {
   preferences: DashboardPreferences;

@@ -3,12 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { LlmProvider } from "@/shared/types";
-
-const PROVIDER_LABELS: Record<LlmProvider, string> = {
-  nvidia: "NVIDIA NIM",
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-};
+import { PROVIDER_LABELS } from "@/app/(dashboard)/lib/provider-labels";
 
 type Props = {
   provider: LlmProvider;
