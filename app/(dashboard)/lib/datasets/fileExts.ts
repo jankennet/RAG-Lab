@@ -12,6 +12,9 @@ export const OCR_EXTS = new Set([
   ".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp",
 ]);
 
+/** Chat upload hint set for OCR-capable files, kept aligned with the dataset parser. */
+export const OCR_HINT_EXTS = new Set(OCR_EXTS);
+
 /** Binary files routed to the upload server (includes Office formats beyond the OCR set). */
 export const BINARY_EXTS = new Set([
   ".pdf", ".docx", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp",

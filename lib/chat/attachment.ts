@@ -1,16 +1,14 @@
-// Pure helpers for the chat attachment + submit flow — React-free.
-// Lifted from app/(dashboard)/components/ChatView.tsx:
-//   - buildAttachmentDocs (L32-57) — turns thread attachments into RAG documents.
-//   - readErrorMessage (L171-194) — resistencia-safe error-body extraction.
-// Moved here so the (Phase 8) submit/ingest hooks can compose already-validated code.
-
-import { smartChunkText } from "@/client/opfs";
-import { fileExt, OCR_HINT_EXTS, TEXT_EXTS } from "@/app/(dashboard)/lib/datasets/fileExts";
+import { smartChunkText, createDataset, updateDatasetChunks, makeDocuments, type OpfsDocument } from "@/client/opfs";
 import type { ChatAttachment, RagDocument } from "@/shared/types";
+import { v4 as uuidv4 } from "uuid";
 
-export { fileExt, OCR_HINT_EXTS, TEXT_EXTS };
+export const TEXT_EXTS = new Set([".txt", ".md", ".text", ".rst", ".html", ".htm", ".xml", ".csv", ".json", ".jsonl", ".sql"]);
+export const OCR_HINT_EXTS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"]);
 
-/** Chunk every attachment and emit RagDocument[] for the retrieval-augmented chat request. */
+export function fileExt(name: string): string {
+  return name.slice(name.lastIndexOf(".")).toLowerCase();
+}
+
 export function buildAttachmentDocs(threadId: string, attachments: ChatAttachment[]): RagDocument[] {
   const docs: RagDocument[] = [];
 
@@ -38,7 +36,6 @@ export function buildAttachmentDocs(threadId: string, attachments: ChatAttachmen
   return docs;
 }
 
-/** Extract a human-readable error message from a fetch Response, preferring `application/json` `{error}` then text. */
 export async function readErrorMessage(response: Response): Promise<string> {
   const statusText = response.statusText || "Internal Server Error";
   const contentType = response.headers.get("content-type") ?? "";
@@ -63,6 +60,3 @@ export async function readErrorMessage(response: Response): Promise<string> {
 
   return `HTTP ${response.status} ${statusText}`.trim();
 }
-
-// Re-exports for convenience so hooked callers import from one place.
-export type { ChatAttachment, RagDocument };

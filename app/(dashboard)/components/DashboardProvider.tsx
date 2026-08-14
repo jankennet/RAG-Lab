@@ -39,7 +39,7 @@ type DashboardContextValue = {
   setTopP: (topP: number) => void;
   setMaxTokens: (maxTokens: number) => void;
   submitApiKey: (provider: LlmProvider, key: string) => Promise<boolean>;
-  setActiveDataset: (datasetId: string) => void;
+  setActiveDataset: (datasetId: string | null) => void;
   setActiveChatId: (chatId: string) => void;
   /** Build a thread synchronously in memory, navigate immediately. OPFS persist happens in the background. */
   createDraftChatThread: (meta?: { title?: string; scope?: ChatScope; datasetId?: string | null }) => ChatThread;
@@ -208,8 +208,8 @@ export default function DashboardProvider({ children }: { children: ReactNode })
     return saved;
   }, []);
 
-  const setActiveDataset = useCallback((datasetId: string) => {
-    setPreferences((prev) => ({ ...prev, activeDatasetId: datasetId }));
+  const setActiveDataset = useCallback((datasetId: string | null) => {
+    setPreferences((prev) => ({ ...prev, activeDatasetId: datasetId ?? "" }));
   }, []);
 
   const setActiveChatId = useCallback((chatId: string) => {
