@@ -42,6 +42,7 @@ function formatDocumentContext(documents: RagDocument[]) {
 
 async function answerQuestion(state: RagState) {
   const context = formatDocumentContext(state.documents);
+  const history = Array.isArray(state.conversationHistory) ? state.conversationHistory : [];
   const response = await callLlm({
     provider: state.provider,
     model: state.model,
@@ -56,7 +57,7 @@ async function answerQuestion(state: RagState) {
           "If documents contain relevant info, answer directly even if partial. " +
           "If documents do not address question, answer from conversation history or general knowledge.",
       },
-      ...state.conversationHistory,
+      ...history,
       {
         role: "user",
         content: `Question:\n${state.question}\n\nContext:\n${context}`,
@@ -170,6 +171,8 @@ export async function runRagGraphWithRetrieval(
     model,
     apiKeys,
     documents: [] as RagDocument[],
+    conversationHistory: [],
+    answer: "",
     _retrieve: retrieve,
   } as RagState & { _retrieve: () => Promise<RagDocument[]> };
 

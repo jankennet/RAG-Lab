@@ -1,80 +1,105 @@
-# RAG LAB
+# RAG Lab 🔬
 
-Browser-native, local-first RAG lab. Data stays in your browser (OPFS). No server DB.
+RAG Lab is a browser-native, local-first evaluation suite and development platform for Agentic RAG (Retrieval-Augmented Generation). Designed for developer observability, it provides automated benchmarking, chunking strategy analysis, and golden dataset generation—giving developers a unified "RAG Accuracy Score" before deployment.
 
-**Stack:**
-- Orchestration: LangGraph.js
-- Inference: NVIDIA NIM / OpenAI / Anthropic
-- Storage: OPFS (Origin Private File System)
-- Chunking: Strategy-pattern chunker (fixed, recursive, structured)
-- Validation: Zod
+Data stays entirely in your browser using OPFS (Origin Private File System). No remote database is required.
 
-## What is included
+---
 
-- `app/` Next.js App Router dashboard
-- `app/api/chat/` RAG query endpoint
-- `app/api/session/` API key validation
-- `app/api/datasets/` Hugging Face dataset import
-- `app/api/upload/` Multi-format file parsing (text, DOCX, XLSX, PDF, images)
-- `app/api/benchmarks/` RAG quality evaluation
-- `app/api/models/` Model listing
-- `app/api/ranking/` Model comparison (by dataset × model)
-- `app/(dashboard)/compare/` Compare UI with local trends
-- `scripts/ingest.ts` CLI dataset ingestion (all formats)
-- `scripts/benchmark.ts` CLI benchmark runner
-- `python-service/` Optional Python microservice (OCR, vector search)
+## 🏗️ Architecture
 
-## Setup
+RAG Lab uses a modular architecture separating orchestration, storage, and evaluation:
 
-1. `npm install`
-2. `npm run dev`
-3. Open app. Go to Settings → add API key(s).
+1. **Agentic Orchestration (`src/server/rag/graph.ts`)**
+   - Built on **LangGraph.js**, supporting stateful RAG workflows.
+   - Interchangeable LLM providers (OpenAI, Anthropic, NVIDIA NIM).
+   - Dynamic chunking strategies (fixed-size, semantic, structured).
 
-## CLI Ingestion
+2. **Developer Observability & Evaluation Suite**
+   - **Synthetic Golden Datasets (`src/server/rag/synthetic.ts`)**: Auto-generates high-quality QA pairs based on ingested documents to build a ground-truth dataset.
+   - **Matrix Evaluation (`src/server/rag/matrix-eval.ts`)**: Exhaustively tests combinations of chunking strategies, embedding models, and prompts against your datasets.
+   - **RAG Accuracy Score (`src/server/rag/score.ts`)**: A weighted, composite metric combining Faithfulness, Relevance, and Completeness to give a clear go/no-go quality signal.
+   - **CI/CD Quality Gates (`scripts/eval-gate.ts`)**: Run headless evaluations in your CI/CD pipeline to ensure RAG performance never degrades on new commits.
+
+3. **Local-First Storage (`src/client/opfs.ts`)**
+   - Documents, datasets, and configurations are securely stored within the browser's sandbox using OPFS.
+   - API keys are encrypted into `httpOnly` cookies via the Next.js backend (`app/api/session/`).
+
+4. **Multi-Format Ingestion Engine**
+   - Parses text, DOCX, XLSX, PDFs, and more.
+   - Fallback to an optional Python microservice (`python-service/`) for OCR on scanned PDFs and images using Tesseract.
+
+---
+
+## 🚀 Quick Start
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Set up environment variables:
+   Rename `.env.example` to `.env` and fill in `SESSION_KEY_SECRET` (used for cookie encryption).
+   ```bash
+   openssl rand -hex 32 # Generate a 64-char hex string
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+
+4. Open the dashboard at `http://localhost:3000`. Navigate to **Settings** to add your API keys.
+
+---
+
+## 📊 Evaluation & Benchmarking (CI/CD)
+
+RAG Lab exposes CLI tools for automated RAG testing:
+
+**Run the Evaluation Gate (CI/CD Quality Check):**
+```bash
+tsx scripts/eval-gate.ts --dataset my-golden-dataset
+```
+
+**Run Matrix Benchmarks:**
+```bash
+tsx scripts/benchmark.ts --all-strategies
+```
+*Benchmarks are saved to `data/benchmarks/` and immediately visualized on the Dashboard Leaderboard (`/compare`).*
+
+---
+
+## 📚 CLI Data Ingestion
+
+You can programmatically ingest data into RAG Lab from local files or HuggingFace:
 
 ```bash
 # From HuggingFace
 tsx scripts/ingest.ts --url https://huggingface.co/datasets/org/name
 
-# From local file
+# From local files
 tsx scripts/ingest.ts --file ./data.csv --content-field text --title-field title
 tsx scripts/ingest.ts --file ./report.docx
-tsx scripts/ingest.ts --file ./spreadsheet.xlsx
 ```
 
-## Python Service (Optional — needed for OCR)
+---
 
-Required for scanned PDFs and images. Not needed for DOCX, XLSX, text formats.
+## 🐍 Python Service (Optional)
 
-See [`python-service/README.md`](python-service/README.md).
+Needed **only** for OCR on scanned PDFs and images. Native formats (Text, Markdown, DOCX, XLSX, JSON) are handled entirely within the TypeScript environment.
 
 ```bash
 cd python-service
 pip install -r requirements.txt
 python main.py
-# → http://127.0.0.1:8001
+# Runs on http://127.0.0.1:8001
 ```
+*(Alternatively, run `npm run rag-service`)*
 
-Or: `npm run rag-service`
+---
 
-## File Format Support
+## 🛡️ Security
 
-| Format | TS Server | Python Service | Notes |
-|--------|-----------|----------------|-------|
-| .txt, .md, .html | ✅ Native | ✅ | Direct text |
-| .csv | ✅ Native | ✅ pandas | |
-| .json, .jsonl | ✅ Native | ✅ | |
-| .sql | ✅ Text | ✅ SQL parser | Statement splitting |
-| .docx | ✅ mammoth | ✅ python-docx | |
-| .xlsx, .xls | ✅ xlsx | ✅ pandas+openpyxl | |
-| .pdf (text layer) | ⚠️ pdftotext | ✅ | TS via CLI tool |
-| .pdf (scanned) | ❌ | ✅ Tesseract | **Requires Python** |
-| .png, .jpg, ... | ❌ | ✅ Tesseract | **Requires Python** |
-
-## Notes
-
-- All data stored in OPFS (browser storage).
-- Text formats parsed client-side. Binary formats sent to server.
-- Image PDFs/images require Python service with Tesseract.
-- Benchmarks persist to `data/benchmarks/` as compact JSON (~2-5KB per run).
-- Compare page at `/compare` compares models by F1, latency, faithfulness, and run trends.
+- **No Remote Database**: User files and datasets do not leave the local browser environment (unless sent to your configured LLM API).
+- **Secure Key Storage**: API keys are never stored in localStorage. They are managed through secure Next.js API routes and `httpOnly` session cookies using `SESSION_KEY_SECRET`.

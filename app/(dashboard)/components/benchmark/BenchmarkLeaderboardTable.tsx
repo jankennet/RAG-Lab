@@ -30,16 +30,17 @@ export default function BenchmarkLeaderboardTable({ groups }: BenchmarkLeaderboa
             <tr className="border-b border-line/60 bg-bg/50">
               <th className="text-left py-3 px-4 text-xs text-muted font-semibold uppercase tracking-wider">Model</th>
               <th className="text-left py-3 px-4 text-xs text-muted font-semibold uppercase tracking-wider">Dataset</th>
+              <th className="text-left py-3 px-4 text-xs text-muted font-semibold uppercase tracking-wider">RAG Score</th>
               <th className="text-left py-3 px-4 text-xs text-muted font-semibold uppercase tracking-wider">Token F1</th>
               <th className="text-left py-3 px-4 text-xs text-muted font-semibold uppercase tracking-wider">Faithfulness</th>
               <th className="text-left py-3 px-4 text-xs text-muted font-semibold uppercase tracking-wider">Relevance</th>
-              <th className="text-left py-3 px-4 text-xs text-muted font-semibold uppercase tracking-wider">Ctx util</th>
               <th className="text-left py-3 px-4 text-xs text-muted font-semibold uppercase tracking-wider">Latency</th>
             </tr>
           </thead>
           <tbody>
             {groups.map((group) => {
               const latest = group.runs[group.runs.length - 1];
+              const score = latest.metrics.ragAccuracyScore ?? Math.round(latest.metrics.tokenF1 * 100);
               return (
                 <tr
                   key={`${group.datasetName}-${group.provider}-${group.model}`}
@@ -49,10 +50,10 @@ export default function BenchmarkLeaderboardTable({ groups }: BenchmarkLeaderboa
                     {group.provider}/{group.model}
                   </td>
                   <td className="py-3 px-4 text-muted">{group.datasetName}</td>
+                  <td className="py-3 px-4 font-semibold text-emerald-400">{score}%</td>
                   <td className="py-3 px-4">{(latest.metrics.tokenF1 * 100).toFixed(1)}%</td>
                   <td className="py-3 px-4">{(latest.metrics.faithfulness * 100).toFixed(1)}%</td>
                   <td className="py-3 px-4">{(latest.metrics.answerRelevance * 100).toFixed(1)}%</td>
-                  <td className="py-3 px-4">{((latest.metrics.exactMatch ?? 0) * 100).toFixed(1)}%</td>
                   <td className="py-3 px-4">{formatMs(latest.metrics.latencyMs)}</td>
                 </tr>
               );

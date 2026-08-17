@@ -6,6 +6,7 @@ import { callLlm } from "@/server/rag/providers";
 import { keywordSearch, type ScoredDoc } from "@/server/rag/retrieval";
 import { tokenF1, exactMatchScore, clamp, answerStatus } from "@/server/rag/metrics";
 import { evaluateRetrieval } from "@/server/rag/retrieval-eval";
+import { calculateRagAccuracyScore } from "@/server/rag/score";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,7 @@ type BenchmarkMetrics = {
   exactMatch: number;
   faithfulness: number;
   answerRelevance: number;
+  ragAccuracyScore: number;
 };
 
 type BenchmarkRun = {
@@ -322,6 +324,14 @@ export async function POST(request: Request) {
       const avgAnswered = (fn: (r: CompactQuestionResult) => number) =>
         answered.length > 0 ? answered.reduce((s, r) => s + fn(r), 0) / answered.length : 0;
 
+      const scoreCalc = calculateRagAccuracyScore({
+        recallAtK: retrievalEval.labeledCount > 0 ? avgLabeled((r) => r.recallAtK) : undefined,
+        faithfulness: avgAnswered((r) => r.faithfulness),
+        answerRelevance: avgAnswered((r) => r.answerRelevance),
+        tokenF1: avg((r) => r.tokenF1),
+        latencyMs: avg((r) => r.latencyMs),
+      });
+
       const metrics: BenchmarkMetrics = {
         latencyMs: avg((r) => r.latencyMs),
         recallAtK: avgLabeled((r) => r.recallAtK),
@@ -332,6 +342,7 @@ export async function POST(request: Request) {
         exactMatch: avg((r) => r.exactMatch),
         faithfulness: avgAnswered((r) => r.faithfulness),
         answerRelevance: avgAnswered((r) => r.answerRelevance),
+        ragAccuracyScore: scoreCalc.ragAccuracyScore,
       };
 
       return {

@@ -419,6 +419,7 @@ export type BenchmarkMetrics = {
   faithfulness: number;
   answerRelevance: number;
   tokenF1: number;
+  ragAccuracyScore?: number;
   exactMatch?: number;
   recallAtK?: number;
   precisionAtK?: number;
