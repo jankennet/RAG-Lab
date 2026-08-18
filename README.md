@@ -10,15 +10,18 @@ Data stays entirely in your browser using OPFS (Origin Private File System). No 
 
 RAG Lab uses a modular architecture separating orchestration, storage, and evaluation:
 
-1. **Agentic Orchestration (`src/server/rag/graph.ts`)**
+1. **Agentic Orchestration & Retrieval (`src/server/rag/graph.ts`, `python-service/`)**
    - Built on **LangGraph.js**, supporting stateful RAG workflows.
+   - **Query Handling**: Directly passes input queries to the embedding engine without rewriting.
+   - **Search Mechanism**: Vector search using normalized cosine similarity against chunk embeddings, with fallback to weighted keyword matching (3x title, 1x content) when embeddings are unavailable.
    - Interchangeable LLM providers (OpenAI, Anthropic, NVIDIA NIM).
    - Dynamic chunking strategies (fixed-size, semantic, structured).
 
 2. **Developer Observability & Evaluation Suite**
    - **Synthetic Golden Datasets (`src/server/rag/synthetic.ts`)**: Auto-generates high-quality QA pairs based on ingested documents to build a ground-truth dataset.
    - **Matrix Evaluation (`src/server/rag/matrix-eval.ts`)**: Exhaustively tests combinations of chunking strategies, embedding models, and prompts against your datasets.
-   - **RAG Accuracy Score (`src/server/rag/score.ts`)**: A weighted, composite metric combining Faithfulness, Relevance, and Completeness to give a clear go/no-go quality signal.
+   - **Deterministic & Semantic Metrics (`src/server/rag/metrics.ts`)**: Measures Recall@K, Precision@K, Mean Reciprocal Rank (MRR), Token F1, and Exact Match, with automated refusal guards against empty/unsupported answers.
+   - **RAG Accuracy Score (`src/server/rag/score.ts`)**: A weighted composite metric combining Faithfulness (35%), Recall@K (30%), Relevance (25%), and Token F1 (10%), with high-latency penalties (>2000ms).
    - **CI/CD Quality Gates (`scripts/eval-gate.ts`)**: Run headless evaluations in your CI/CD pipeline to ensure RAG performance never degrades on new commits.
 
 3. **Local-First Storage (`src/client/opfs.ts`)**
